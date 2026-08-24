@@ -39,7 +39,7 @@ async function buildOrderUpTo(status?: 'OUT_FOR_DELIVERY' | 'DELIVERED') {
     await recordDeliveryAttempt(order.id, {
       ...driverContext,
       result: 'SUCCESS',
-      proof: { type: 'OTP', data: { code: '482913', otpVerified: true } },
+      proof: { type: 'OTP', value: '482913' },
     });
   }
 

@@ -140,6 +140,14 @@ export default async function OrderDetailPage({ params }: { params: { id: string
                   }
                 />
               </dl>
+              {(order.delivery.proofType === 'PHOTO' || order.delivery.proofType === 'SIGNATURE') && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/v1/deliveries/orders/${order.id}/proof`}
+                  alt={order.delivery.proofType === 'PHOTO' ? 'Photo de livraison' : 'Signature du client'}
+                  className="mt-3 max-h-64 w-full rounded-md border border-hairline object-contain"
+                />
+              )}
             </Card>
           )}
         </div>

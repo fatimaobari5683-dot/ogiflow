@@ -34,7 +34,7 @@ async function deliverOneOrder(driverId: string, driverUserId: string, zoneId: s
   await recordDeliveryAttempt(order.id, {
     ...driverContext,
     result: 'SUCCESS',
-    proof: { type: 'OTP', data: { code: '111111', otpVerified: true } },
+    proof: { type: 'OTP', value: '111111' },
   });
   return order;
 }

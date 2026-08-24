@@ -1,9 +1,11 @@
 import { Prisma } from '@prisma/client';
+import { nanoid } from 'nanoid';
 import type { Delivery, OrderStatus, DeliveryAttemptResult } from '@prisma/client';
 import { prisma } from '@/infrastructure/database/client';
 import { transitionOrderStatus } from '@/modules/orders/orders.service';
 import { TERMINAL_STATUSES } from '@/modules/orders/order-state-machine';
 import { sequenceByNearestNeighbor } from '@/shared/utils/geo';
+import { getDocumentStorage } from '@/infrastructure/storage/document-storage';
 
 export class DeliveryError extends Error {
   statusCode: number;
@@ -114,13 +116,31 @@ export async function advanceDeliveryStatus(
 interface RecordAttemptOptions extends ActorContext, GeoContext {
   result: DeliveryAttemptResult;
   notes?: string;
-  proof?: { type: 'SIGNATURE' | 'OTP' | 'PHOTO' | 'GPS'; data: Record<string, unknown> };
+  proof?: {
+    type: 'SIGNATURE' | 'OTP' | 'PHOTO' | 'GPS';
+    // Code saisi par le livreur (OTP uniquement).
+    value?: string;
+    // Photo prise par l'appareil, ou signature dessinée puis convertie en
+    // image (SIGNATURE/PHOTO) — capture réelle depuis le navigateur, plus
+    // un texte libre arbitraire comme avant cette fonctionnalité.
+    file?: { buffer: Buffer; mimeType: string };
+  };
 }
+
+const FILE_EXTENSION_BY_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
 
 /**
  * Enregistre une tentative de livraison. En cas de succès, exige et persiste
  * la preuve de livraison (POD — signature, OTP, photo ou GPS) avant de
- * transiter la commande vers DELIVERED.
+ * transiter la commande vers DELIVERED. SIGNATURE/PHOTO sont de vraies
+ * images capturées côté navigateur (caméra ou pad de signature), stockées
+ * via la même abstraction que les documents KYC (`DocumentStorage`) — le
+ * `proofData` JSON ne porte plus qu'une clé de stockage, jamais le fichier
+ * lui-même.
  */
 export async function recordDeliveryAttempt(orderId: string, options: RecordAttemptOptions) {
   const delivery = await getDeliveryForOrder(orderId);
@@ -128,6 +148,12 @@ export async function recordDeliveryAttempt(orderId: string, options: RecordAtte
 
   if (options.result === 'SUCCESS' && !options.proof) {
     throw new DeliveryError('Une preuve de livraison (POD) est requise pour confirmer une livraison réussie.', 422);
+  }
+  if (options.proof?.type === 'OTP' && !options.proof.value?.trim()) {
+    throw new DeliveryError('Le code OTP ne peut pas être vide.', 422);
+  }
+  if ((options.proof?.type === 'SIGNATURE' || options.proof?.type === 'PHOTO') && !options.proof.file) {
+    throw new DeliveryError(`Une preuve ${options.proof.type === 'PHOTO' ? 'photo' : 'signature'} requiert un fichier image.`, 422);
   }
 
   const attemptNumber = (await prisma.deliveryAttempt.count({ where: { deliveryId: delivery.id } })) + 1;
@@ -153,12 +179,24 @@ export async function recordDeliveryAttempt(orderId: string, options: RecordAtte
   });
 
   if (options.result === 'SUCCESS') {
+    const proof = options.proof!;
+    let proofData: Record<string, unknown> = {};
+
+    if (proof.file) {
+      const ext = FILE_EXTENSION_BY_MIME[proof.file.mimeType] ?? '';
+      const fileKey = `deliveries/${delivery.id}/${proof.type}-${nanoid(10)}${ext}`;
+      await getDocumentStorage().save(fileKey, proof.file.buffer);
+      proofData = { fileKey, mimeType: proof.file.mimeType };
+    } else if (proof.type === 'OTP') {
+      proofData = { value: proof.value };
+    }
+
     await prisma.delivery.update({
       where: { id: delivery.id },
       data: {
         deliveredAt: new Date(),
-        proofType: options.proof!.type,
-        proofData: options.proof!.data as Prisma.InputJsonValue,
+        proofType: proof.type,
+        proofData: proofData as Prisma.InputJsonValue,
       },
     });
   }
@@ -171,6 +209,28 @@ export async function recordDeliveryAttempt(orderId: string, options: RecordAtte
         ? 'Livraison confirmée avec preuve de livraison (POD)'
         : `Tentative échouée (#${attemptNumber}) : ${options.result}${options.notes ? ` — ${options.notes}` : ''}`,
   });
+}
+
+/**
+ * Lit le fichier de preuve (photo/signature) d'une livraison — 404 explicite
+ * si la commande n'a pas de livraison, ou si sa preuve n'est pas de type
+ * fichier (OTP/GPS n'ont rien à streamer). Même abstraction de stockage que
+ * les documents KYC, jamais servi directement depuis /public (voir
+ * api/v1/deliveries/orders/[orderId]/proof/route.ts).
+ */
+export async function getDeliveryProofFile(orderId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  const delivery = await prisma.delivery.findUnique({ where: { orderId } });
+  if (!delivery || (delivery.proofType !== 'SIGNATURE' && delivery.proofType !== 'PHOTO')) {
+    throw new DeliveryError('Aucune preuve de livraison (photo/signature) disponible pour cette commande.', 404);
+  }
+
+  const proofData = delivery.proofData as { fileKey?: string; mimeType?: string } | null;
+  if (!proofData?.fileKey) {
+    throw new DeliveryError('Aucune preuve de livraison (photo/signature) disponible pour cette commande.', 404);
+  }
+
+  const buffer = await getDocumentStorage().read(proofData.fileKey);
+  return { buffer, mimeType: proofData.mimeType ?? 'application/octet-stream' };
 }
 
 /**

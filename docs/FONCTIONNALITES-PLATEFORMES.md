@@ -282,6 +282,36 @@ livraisons restantes plutôt qu'un simple booléen — aucune modification n'a
 
 ---
 
+## 15. Preuve de livraison (POD) réelle — photo et signature
+
+**Inspiré de** : la capture obligatoire d'une photo ou signature à la
+livraison chez DHL/Chronopost/Amazon Logistics — la preuve doit venir du
+terminal du livreur, pas d'un champ texte qu'il remplit lui-même.
+
+**Avant** : "Photo" et "Signature" étaient deux étiquettes de bouton parmi
+d'autres, mais soumettaient toutes exactement le même champ texte libre —
+aucune caméra, aucun pad de signature, aucun fichier réel nulle part dans
+le code. `Delivery.proofData` stockait n'importe quel JSON, y compris une
+"photo" qui n'avait jamais existé.
+
+**Maintenant** : une vraie photo est prise via l'appareil (`<input
+type="file" accept="image/*" capture="environment">`, ouvre directement la
+caméra sur mobile) ; une vraie signature est dessinée à la main sur un
+canvas (pointer events, unifie souris/tactile) puis convertie en PNG. Les
+deux sont téléversés en `multipart/form-data` et stockés via la même
+abstraction que les documents KYC (`DocumentStorage`) — jamais l'image
+elle-même en base, seulement une clé de stockage. Un agent interne, le
+fournisseur propriétaire ou le livreur assigné peut ensuite consulter la
+preuve via une route authentifiée dédiée ; la fiche commande admin
+l'affiche directement.
+
+**Code** : `SignaturePad` (`src/components/driver/SignaturePad.tsx`),
+`recordDeliveryAttempt`/`getDeliveryProofFile` (`deliveries.service.ts`),
+`/api/v1/deliveries/orders/[orderId]/attempts` (désormais multipart),
+`/api/v1/deliveries/orders/[orderId]/proof` (nouvelle route de lecture)
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel

@@ -4,16 +4,18 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { apiFetch, ApiError } from '@/lib/api-client';
+import { SignaturePad } from '@/components/driver/SignaturePad';
 
 type TransitStatus = 'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY';
 type FailureResult = 'CUSTOMER_ABSENT' | 'WRONG_ADDRESS' | 'CUSTOMER_REFUSED' | 'OTHER_FAILURE';
+type ProofType = 'OTP' | 'SIGNATURE' | 'PHOTO' | 'GPS';
 
-const PROOF_TYPES = [
+const PROOF_TYPES: { value: ProofType; label: string }[] = [
   { value: 'OTP', label: 'Code OTP' },
   { value: 'SIGNATURE', label: 'Signature' },
   { value: 'PHOTO', label: 'Photo' },
   { value: 'GPS', label: 'GPS uniquement' },
-] as const;
+];
 
 /** Best-effort : ne bloque jamais une action si la géoloc est refusée/absente. */
 function getGeo(): Promise<{ latitude?: number; longitude?: number }> {
@@ -27,14 +29,36 @@ function getGeo(): Promise<{ latitude?: number; longitude?: number }> {
   });
 }
 
+function appendGeo(formData: FormData, geo: { latitude?: number; longitude?: number }) {
+  if (geo.latitude !== undefined) formData.append('latitude', String(geo.latitude));
+  if (geo.longitude !== undefined) formData.append('longitude', String(geo.longitude));
+}
+
 export function MissionActions({ orderId, status }: { orderId: string; status: string }) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showPodForm, setShowPodForm] = useState(false);
-  const [proofType, setProofType] = useState<(typeof PROOF_TYPES)[number]['value']>('OTP');
-  const [proofValue, setProofValue] = useState('');
+  const [proofType, setProofType] = useState<ProofType>('PHOTO');
+  const [otpValue, setOtpValue] = useState('');
+  const [signatureBlob, setSignatureBlob] = useState<Blob | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+
+  function selectProofType(next: ProofType) {
+    setProofType(next);
+    setError(null);
+  }
+
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    setPhotoFile(file);
+    setPhotoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }
 
   async function advance(toStatus: TransitStatus) {
     setLoading(toStatus);
@@ -58,10 +82,12 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
     setError(null);
     try {
       const geo = await getGeo();
-      await apiFetch(`/api/v1/deliveries/orders/${orderId}/attempts`, {
-        method: 'POST',
-        body: JSON.stringify({ result, notes: notes || undefined, ...geo }),
-      });
+      const formData = new FormData();
+      formData.append('result', result);
+      if (notes) formData.append('notes', notes);
+      appendGeo(formData, geo);
+
+      await apiFetch(`/api/v1/deliveries/orders/${orderId}/attempts`, { method: 'POST', body: formData });
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Action impossible.');
@@ -71,22 +97,37 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
   }
 
   async function confirmDelivered() {
-    if (!proofValue.trim()) {
-      setError('Renseignez la preuve de livraison avant de confirmer.');
+    if (proofType === 'OTP' && !otpValue.trim()) {
+      setError('Saisissez le code reçu par le client.');
       return;
     }
+    if (proofType === 'SIGNATURE' && !signatureBlob) {
+      setError('Faites signer le client avant de confirmer.');
+      return;
+    }
+    if (proofType === 'PHOTO' && !photoFile) {
+      setError('Prenez une photo avant de confirmer.');
+      return;
+    }
+
     setLoading('SUCCESS');
     setError(null);
     try {
       const geo = await getGeo();
-      await apiFetch(`/api/v1/deliveries/orders/${orderId}/attempts`, {
-        method: 'POST',
-        body: JSON.stringify({
-          result: 'SUCCESS',
-          proof: { type: proofType, data: { value: proofValue } },
-          ...geo,
-        }),
-      });
+      const formData = new FormData();
+      formData.append('result', 'SUCCESS');
+      formData.append('proofType', proofType);
+      appendGeo(formData, geo);
+
+      if (proofType === 'OTP') {
+        formData.append('proofValue', otpValue.trim());
+      } else if (proofType === 'SIGNATURE' && signatureBlob) {
+        formData.append('file', signatureBlob, 'signature.png');
+      } else if (proofType === 'PHOTO' && photoFile) {
+        formData.append('file', photoFile, photoFile.name);
+      }
+
+      await apiFetch(`/api/v1/deliveries/orders/${orderId}/attempts`, { method: 'POST', body: formData });
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Confirmation impossible.');
@@ -197,7 +238,8 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
             {PROOF_TYPES.map((p) => (
               <button
                 key={p.value}
-                onClick={() => setProofType(p.value)}
+                type="button"
+                onClick={() => selectProofType(p.value)}
                 className={`rounded-full px-3 py-1.5 text-xs font-medium ${
                   proofType === p.value ? 'bg-brand-600 text-white' : 'bg-slate-100 text-ink-secondary'
                 }`}
@@ -206,12 +248,40 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
               </button>
             ))}
           </div>
-          <input
-            value={proofValue}
-            onChange={(e) => setProofValue(e.target.value)}
-            placeholder={proofType === 'OTP' ? 'Code reçu par le client' : 'Référence / note'}
-            className="w-full rounded-md border border-hairline px-3 py-2 text-sm"
-          />
+
+          {proofType === 'OTP' && (
+            <input
+              value={otpValue}
+              onChange={(e) => setOtpValue(e.target.value)}
+              placeholder="Code reçu par le client"
+              className="w-full rounded-md border border-hairline px-3 py-2 text-sm"
+            />
+          )}
+
+          {proofType === 'SIGNATURE' && <SignaturePad onChange={setSignatureBlob} />}
+
+          {proofType === 'PHOTO' && (
+            <div className="space-y-2">
+              {photoPreviewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoPreviewUrl} alt="Photo de livraison" className="h-40 w-full rounded-md border border-hairline object-cover" />
+              ) : (
+                <p className="text-xs text-ink-muted">Prenez une photo du colis livré (ou de l&apos;emplacement de dépôt).</p>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handlePhotoChange}
+                className="w-full text-sm"
+              />
+            </div>
+          )}
+
+          {proofType === 'GPS' && (
+            <p className="text-xs text-ink-muted">Votre position actuelle sera jointe comme preuve de passage.</p>
+          )}
+
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setShowPodForm(false)}>
               Annuler

@@ -63,7 +63,7 @@ describe('Cycle de vie complet d\'une commande COD', () => {
     const deliveredOrder = await recordDeliveryAttempt(order.id, {
       ...driverContext,
       result: 'SUCCESS',
-      proof: { type: 'OTP', data: { code: '482913', otpVerified: true } },
+      proof: { type: 'OTP', value: '482913' },
     });
     expect(deliveredOrder.status).toBe('DELIVERED');
 

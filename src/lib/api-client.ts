@@ -33,9 +33,14 @@ function extractErrorMessage(body: ErrorResponseBody | null, status: number): st
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  // Un corps FormData ne doit jamais recevoir de Content-Type explicite : le
+  // navigateur doit calculer lui-même le boundary multipart. Un Content-Type
+  // fixé à la main casserait le parsing côté serveur (formData() renverrait
+  // un objet vide, sans erreur visible).
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: isFormData ? init?.headers : { 'Content-Type': 'application/json', ...init?.headers },
   });
 
   const body = await res.json().catch(() => null);

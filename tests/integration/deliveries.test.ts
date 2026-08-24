@@ -3,7 +3,13 @@ import { prisma, resetDatabase } from '../db';
 import { createOrderFixtures, createDriver, createUser } from '../factories';
 import { createOrderForSupplier, transitionOrderStatus } from '@/modules/orders/orders.service';
 import { assignDriverToOrder } from '@/modules/dispatch/dispatch.service';
-import { advanceDeliveryStatus, recordDeliveryAttempt, getMyMissions, DeliveryError } from '@/modules/deliveries/deliveries.service';
+import {
+  advanceDeliveryStatus,
+  recordDeliveryAttempt,
+  getMyMissions,
+  getDeliveryProofFile,
+  DeliveryError,
+} from '@/modules/deliveries/deliveries.service';
 
 beforeEach(resetDatabase);
 
@@ -45,7 +51,7 @@ describe('deliveries — isolation entre livreurs (protection IDOR)', () => {
         actorId: intruderUser.id,
         actorRole: 'DRIVER',
         result: 'SUCCESS',
-        proof: { type: 'OTP', data: { code: '000000' } },
+        proof: { type: 'OTP', value: '000000' },
       })
     ).rejects.toThrow(DeliveryError);
   });
@@ -91,6 +97,67 @@ describe('deliveries — preuve de livraison obligatoire', () => {
 
     const result = await recordDeliveryAttempt(order.id, { ...ctx, result: 'OTHER_FAILURE' });
     expect(result.status).toBe('RESCHEDULED');
+  });
+});
+
+describe('deliveries — preuve de livraison PHOTO/SIGNATURE (fichier réel)', () => {
+  async function deliverWithFile(proofType: 'PHOTO' | 'SIGNATURE', bytes: Buffer) {
+    const { order, driverUser } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const };
+    await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
+    await advanceDeliveryStatus(order.id, 'IN_TRANSIT', ctx);
+    await advanceDeliveryStatus(order.id, 'OUT_FOR_DELIVERY', ctx);
+    await recordDeliveryAttempt(order.id, {
+      ...ctx,
+      result: 'SUCCESS',
+      proof: { type: proofType, file: { buffer: bytes, mimeType: 'image/png' } },
+    });
+    return order;
+  }
+
+  it('stocke le fichier PHOTO via DocumentStorage et persiste une clé, jamais les octets en base', async () => {
+    const bytes = Buffer.from('fake-photo-bytes');
+    const order = await deliverWithFile('PHOTO', bytes);
+
+    const delivery = await prisma.delivery.findUniqueOrThrow({ where: { orderId: order.id } });
+    expect(delivery.proofType).toBe('PHOTO');
+    const proofData = delivery.proofData as { fileKey?: string; mimeType?: string };
+    expect(proofData.fileKey).toMatch(/^deliveries\/.+\/PHOTO-.+\.png$/);
+    expect(proofData.mimeType).toBe('image/png');
+    // Le JSON ne contient que la clé de stockage, jamais les octets eux-mêmes.
+    expect(JSON.stringify(proofData)).not.toContain('fake-photo-bytes');
+  });
+
+  it('getDeliveryProofFile relit exactement les octets stockés pour une preuve SIGNATURE', async () => {
+    const bytes = Buffer.from('fake-signature-bytes');
+    const order = await deliverWithFile('SIGNATURE', bytes);
+
+    const { buffer, mimeType } = await getDeliveryProofFile(order.id);
+    expect(buffer.equals(bytes)).toBe(true);
+    expect(mimeType).toBe('image/png');
+  });
+
+  it('refuse une preuve PHOTO/SIGNATURE sans fichier joint', async () => {
+    const { order, driverUser } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const };
+    await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
+    await advanceDeliveryStatus(order.id, 'IN_TRANSIT', ctx);
+    await advanceDeliveryStatus(order.id, 'OUT_FOR_DELIVERY', ctx);
+
+    await expect(
+      recordDeliveryAttempt(order.id, { ...ctx, result: 'SUCCESS', proof: { type: 'PHOTO' } })
+    ).rejects.toThrow(DeliveryError);
+  });
+
+  it("getDeliveryProofFile lève une erreur explicite pour une preuve OTP (rien à streamer)", async () => {
+    const { order, driverUser } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const };
+    await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
+    await advanceDeliveryStatus(order.id, 'IN_TRANSIT', ctx);
+    await advanceDeliveryStatus(order.id, 'OUT_FOR_DELIVERY', ctx);
+    await recordDeliveryAttempt(order.id, { ...ctx, result: 'SUCCESS', proof: { type: 'OTP', value: '123456' } });
+
+    await expect(getDeliveryProofFile(order.id)).rejects.toThrow(DeliveryError);
   });
 });
 
@@ -140,7 +207,7 @@ describe('getMyMissions — multi-arrêts', () => {
     await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
     await advanceDeliveryStatus(order.id, 'IN_TRANSIT', ctx);
     await advanceDeliveryStatus(order.id, 'OUT_FOR_DELIVERY', ctx);
-    await recordDeliveryAttempt(order.id, { ...ctx, result: 'SUCCESS', proof: { type: 'OTP', data: { code: '000000' } } });
+    await recordDeliveryAttempt(order.id, { ...ctx, result: 'SUCCESS', proof: { type: 'OTP', value: '000000' } });
 
     const missions = await getMyMissions(driver.id);
     expect(missions).toHaveLength(0);

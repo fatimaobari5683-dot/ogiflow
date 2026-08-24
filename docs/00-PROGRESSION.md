@@ -1094,13 +1094,41 @@ actives (donnée de test accumulée pendant cette session) a été correctement
 exclu des candidats d'une 4ᵉ commande, confirmant la limite de capacité en
 conditions réelles, pas seulement en test.
 
+## ✅ Preuve de livraison (POD) réelle — photo et signature (2026-08-24)
+
+"Photo" et "Signature" étaient deux étiquettes de bouton parmi quatre types
+de preuve, mais soumettaient toutes le même champ texte libre — aucune
+caméra, aucun canvas, aucun fichier réel nulle part dans le code
+(`grep getUserMedia/canvas/MediaStream` : zéro résultat). Une preuve "photo"
+n'avait donc jamais existé.
+
+Remplacé par une vraie capture : `<input type="file" accept="image/*"
+capture="environment">` (ouvre l'appareil photo sur mobile) pour PHOTO, un
+canvas dessiné à la main (pointer events) converti en PNG pour SIGNATURE.
+La route `attempts` est passée de JSON à `multipart/form-data` (elle doit
+porter un fichier binaire dans la même requête) — `apiFetch` (client HTTP
+partagé) a dû apprendre à ne plus forcer `Content-Type: application/json`
+quand le corps est un `FormData`, sinon le navigateur ne peut plus calculer
+le boundary multipart lui-même. Les fichiers sont stockés via la même
+abstraction que les documents KYC (`DocumentStorage`) — `Delivery.proofData`
+ne porte plus qu'une clé de stockage, jamais les octets. Nouvelle route
+authentifiée pour relire la preuve (même garde d'ownership que le bordereau
+imprimable), affichée sur la fiche commande admin.
+
+10 nouveaux tests (fichier réellement stocké et relu, validation manquante,
+OTP/GPS n'ont rien à streamer). Vérifié en direct dans un vrai navigateur :
+un vrai fichier PNG téléversé via `setInputFiles` (photo), un vrai trait de
+souris dessiné sur le canvas (signature), les deux confirmés sans erreur ;
+puis relu comme admin — l'image s'affiche réellement (`naturalWidth/Height:
+1×1`, exactement la taille du PNG de test envoyé, pas une image cassée).
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 1. **Import CSV de commandes (fournisseur)** — le formulaire un-par-un existe et fonctionne ; l'import en masse reste à faire (même service `createOrderForSupplier` sous-jacent, juste un parseur CSV + validation ligne par ligne en plus)
 2. **Providers de notification réels** — brancher Twilio (SMS/WhatsApp) et Resend/SES (email) derrière `NotificationProvider` (nécessite des identifiants du côté utilisateur)
 3. **Middleware RBAC global** — actuellement : garde par route via `requirePermission`/`requireAnyPermission`/`requireDriverAccess`/`requireSupplierAccess`, fonctionnel, validé dans les 3 portails ET couvert par les tests d'intégration, mais pas centralisé
 4. **Étendre la couverture de tests** — payments/settlements/products/analytics n'ont pas encore leur fichier dédié (le chemin critique COD est couvert par `full-lifecycle.test.ts`, mais pas les cas limites : paiement prépayé/virement, contestation de versement, unicité SKU) ; ajouter aussi des tests sur les routes API elles-mêmes (RBAC HTTP), pas seulement la couche service ; brancher `npm test` en CI dès qu'il y a un dépôt git
-5. **Manifest PWA + capture signature/photo réelle** (app livreur) — voir section dédiée plus haut
+5. **Manifest PWA** (`manifest.json`, icônes, service worker) — la capture signature/photo réelle est faite (voir section 15, FONCTIONNALITES-PLATEFORMES.md) ; reste l'installabilité sur écran d'accueil, nécessite des assets d'icône réels
 6. **Génération PDF facture/état de versement** — mentionné dans le plan produit initial (section paiements), pas encore construit
 7. **Webhooks fournisseurs** — notifier un système externe des changements de statut de commande (mentionné dans les deux documents d'architecture, pas encore construit)
 8. **Stockage S3-compatible pour les documents** — `document-storage.ts` est déjà interface-based (swap sans toucher aux appelants), mais le provider actif est un stockage disque local explicitement non production-ready
