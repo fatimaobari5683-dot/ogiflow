@@ -38,6 +38,7 @@ const TABLES_IN_DELETE_ORDER = [
   'customers',
   'driver_zones',
   'drivers',
+  'webhook_deliveries',
   'supplier_users',
   'suppliers',
   'zones',

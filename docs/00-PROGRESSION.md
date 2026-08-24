@@ -1172,6 +1172,34 @@ une seule page chacun (comptage exact des objets `/Type /Page` dans les
 octets bruts du PDF — même méthode que la vérification du bug 2-pages du
 bordereau), et l'accès fournisseur à son propre état de versement fonctionne.
 
+## ✅ Webhooks sortants fournisseurs (2026-08-24)
+
+Dernier point de la liste des "produits substantiels" identifiés en cours
+de session. Un fournisseur configure une URL + reçoit un secret de
+signature (`/supplier/webhooks`) ; sept événements domaine déjà émis par
+`order-state-machine.ts` (confirmée, assignée, en livraison, livrée,
+échouée, retournée, annulée) déclenchent un `POST` HMAC-signé vers cette
+URL. Nouveau modèle `WebhookDelivery` (journal + rejeu manuel) — nouvelle
+table ajoutée à `TABLES_IN_DELETE_ORDER` (tests/db.ts) dès sa création,
+cette fois, pour éviter de reproduire le bug déjà rencontré deux fois cette
+session avec des tables oubliées.
+
+Choix assumé : pas de file de réessai différée (2 réessais immédiats à
+délai court, puis rejeu manuel uniquement) — ce projet n'a pas de
+scheduler/BullMQ branché, et en inventer un pour ce seul besoin aurait été
+la complexité prématurée que ce codebase évite systématiquement ailleurs
+(SLA, tiers livreur, etc.). Protection SSRF volontairement minimale (hôtes
+privés/HTTP bloqués en production seulement, pour rester vérifiable contre
+un serveur de test local en dev).
+
+9 nouveaux tests, dont plusieurs contre un **vrai serveur HTTP local**
+(`node:http`, pas un mock de `fetch`) : signature HMAC recalculée et
+comparée côté récepteur, échec+réessai+rejeu en conditions réelles, et
+l'intégration bout-en-bout avec `dispatchDomainEvent`. Suite complète verte
+(445/445). Vérifié en direct : un vrai script a fait transiter une commande
+réelle vers CONFIRMED, un vrai serveur local a reçu l'appel signé, et la
+page `/supplier/webhooks` affichait bien cette livraison dans son journal.
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 ~~1. Import CSV de commandes (fournisseur)~~ — fait, voir section 16 (FONCTIONNALITES-PLATEFORMES.md)
@@ -1180,7 +1208,7 @@ bordereau), et l'accès fournisseur à son propre état de versement fonctionne.
 4. **Étendre la couverture de tests** — payments/settlements/products/analytics n'ont pas encore leur fichier dédié (le chemin critique COD est couvert par `full-lifecycle.test.ts`, mais pas les cas limites : paiement prépayé/virement, contestation de versement, unicité SKU) ; ajouter aussi des tests sur les routes API elles-mêmes (RBAC HTTP), pas seulement la couche service ; brancher `npm test` en CI dès qu'il y a un dépôt git
 5. **Manifest PWA** (`manifest.json`, icônes, service worker) — la capture signature/photo réelle est faite (voir section 15, FONCTIONNALITES-PLATEFORMES.md) ; reste l'installabilité sur écran d'accueil, nécessite des assets d'icône réels
 ~~6. Génération PDF facture/état de versement~~ — fait, voir section 17 (FONCTIONNALITES-PLATEFORMES.md)
-7. **Webhooks fournisseurs** — notifier un système externe des changements de statut de commande (mentionné dans les deux documents d'architecture, pas encore construit)
+~~7. Webhooks fournisseurs~~ — fait, voir section 18 (FONCTIONNALITES-PLATEFORMES.md)
 8. **Stockage S3-compatible pour les documents** — `document-storage.ts` est déjà interface-based (swap sans toucher aux appelants), mais le provider actif est un stockage disque local explicitement non production-ready
 9. **Documents contractuels** (Driver Partner Agreement, contrat fournisseur) — hors périmètre technique, nécessite rédaction juridique locale avant tout développement
 10. **Documents multi-fichiers** (CIN recto/verso comme un seul `Document` avec plusieurs `DocumentFile`) — le modèle actuel est volontairement un fichier par document ; suffisant tant qu'un recto/verso combiné en un seul PDF/photo reste acceptable

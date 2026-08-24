@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/supplier/documents', label: 'Documents' },
   { href: '/supplier/settlements', label: 'Versements' },
   { href: '/supplier/support', label: 'Aide' },
+  { href: '/supplier/webhooks', label: 'Webhooks' },
   { href: '/account', label: 'Mon compte' },
 ];
 

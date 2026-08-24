@@ -362,6 +362,39 @@ sans requête supplémentaire
 
 ---
 
+## 18. Webhooks sortants (notifications fournisseur)
+
+**Inspiré de** : le mécanisme de webhooks de Shopify/Stripe — un fournisseur
+branche son propre système (ERP, outil de suivi de commandes) et reçoit un
+appel HTTP à chaque changement de statut pertinent, sans avoir à interroger
+l'API LogiFlow en boucle.
+
+**Maintenant** : un fournisseur configure une URL depuis `/supplier/webhooks`
+; LogiFlow génère un secret de signature (affiché une seule fois généré,
+jamais régénéré silencieusement pour ne pas casser une intégration en
+place). Chaque commande confirmée, assignée, en livraison, livrée,
+retournée ou annulée déclenche un `POST` signé (`X-LogiFlow-Signature:
+sha256=<HMAC>`, calculé sur le corps brut — le fournisseur peut vérifier
+l'authenticité de son côté). Un échec relance automatiquement deux fois
+(délais courts, pas de file différée — ce projet n'a pas de scheduler), puis
+reste rejouable manuellement depuis le journal des livraisons.
+
+**Sécurité** : protection SSRF minimale — hôtes privés/locaux et HTTP
+(non-HTTPS) bloqués en production uniquement (autorisés en dev/test, sinon
+impossible à vérifier contre un serveur de test local). Explicitement pas
+exhaustif (pas de protection contre le DNS rebinding) — honnête sur cette
+limite comme les autres garde-fous "V1" du projet.
+
+**Code** : `src/modules/webhooks/webhooks.service.ts`
+(`setSupplierWebhook`, `sendWebhook`, `retryWebhookDelivery`),
+`src/modules/webhooks/webhooks.events.ts` (branché sur les événements
+domaine déjà émis par `order-state-machine.ts`), page `/supplier/webhooks`.
+Vérifié avec un vrai serveur HTTP local (pas un mock de `fetch`) : signature
+HMAC recalculée et comparée côté récepteur, échec+réessai+rejeu manuel
+testés en conditions réelles.
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel

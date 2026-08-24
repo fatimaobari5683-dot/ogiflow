@@ -127,10 +127,21 @@ model Supplier {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
+  // Webhook sortant — un seul endpoint par fournisseur (pas un système
+  // multi-endpoints/multi-événements à la Stripe : aucune demande pour
+  // cette granularité, et un seul point d'intégration couvre le besoin réel
+  // "être notifié des changements de statut de mes commandes"). Le secret
+  // sert à signer chaque livraison (HMAC-SHA256) pour que le récepteur
+  // puisse vérifier l'authenticité — généré une seule fois, jamais régénéré
+  // silencieusement pour ne pas casser une intégration déjà en place.
+  webhookUrl        String?
+  webhookSecret     String?
+
   additionalUsers   SupplierUser[]
   products          Product[]
   orders            Order[]
   settlements       Settlement[]
+  webhookDeliveries WebhookDelivery[]
 
   @@index([status])
   @@map("suppliers")
@@ -931,4 +942,37 @@ model Document {
   @@index([status])
   @@index([expiresAt])
   @@map("documents")
+}
+
+// ============================================================================
+// 11. WEBHOOKS SORTANTS (fournisseurs)
+// ============================================================================
+
+enum WebhookDeliveryStatus {
+  SUCCESS
+  FAILED
+}
+
+// Journal de chaque tentative d'envoi — sert à la fois d'audit (le
+// fournisseur voit ce qui a été livré et quand) et de mécanisme de reprise
+// manuelle : pas de file de réessai différé ici (aucun scheduler dans ce
+// projet, même limite assumée que LoggingNotificationProvider), donc un
+// échec après les tentatives immédiates reste consultable et rejouable à la
+// main (voir retryWebhookDelivery, webhooks.service.ts).
+model WebhookDelivery {
+  id             String                @id @default(cuid())
+  supplierId     String
+  supplier       Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  event          String
+  orderId        String?
+  url            String
+  payload        Json
+  status         WebhookDeliveryStatus
+  attempts       Int
+  responseStatus Int?
+  errorMessage   String?
+  createdAt      DateTime              @default(now())
+
+  @@index([supplierId, createdAt])
+  @@map("webhook_deliveries")
 }
