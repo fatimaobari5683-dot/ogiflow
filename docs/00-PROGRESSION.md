@@ -1223,6 +1223,31 @@ direct : une vraie commande créée via le formulaire fournisseur avec un
 créneau à J+1 s'est retrouvée en base avec les bons champs, affichée
 correctement sur la fiche commande ET sur la page de suivi client.
 
+## ✅ Classement des livreurs (2026-08-24)
+
+Nouvelle idée suggérée en cours de session (pas dans le plan produit
+initial) : un classement hebdomadaire/mensuel par volume de livraisons
+réussies, façon Uber Pro/Grab Rewards. `computeDriverTier`
+(`drivers.service.ts`) était déjà privée à ce module — exportée pour être
+réutilisée par le nouveau `getDriverLeaderboard`, plutôt que dupliquer sa
+logique. Point de discipline notable : le classement lui-même est scopé à
+la période choisie (semaine/mois), mais le **badge de palier** affiché
+reste calculé sur tout l'historique du livreur — les confondre aurait
+donné l'impression qu'un livreur "perd son palier" simplement parce qu'on
+regarde une fenêtre plus courte, incohérent avec ce qu'il voit sur
+`/earnings`.
+
+En prime, en marge — le lien de navigation directe vers Maps (autre idée
+de la même série) existait déjà dans le code (`/(driver)/missions/[orderId]`,
+bouton "🧭 Naviguer") : rien à construire, juste vérifié en le relisant.
+
+20 nouveaux tests (classement, exclusion des livreurs inactifs sur la
+période, fenêtre WEEK vs MONTH, palier réel vs période). Suite complète
+verte (460/460). Vérifié en direct avec les vraies données de livraison
+accumulées pendant cette session : DRV-003 (4 livraisons réelles ce mois)
+correctement en tête, DRV-002 et DRV-001 (1 chacun) derrière, ville et
+mise en avant "(vous)" corrects.
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 ~~1. Import CSV de commandes (fournisseur)~~ — fait, voir section 16 (FONCTIONNALITES-PLATEFORMES.md)

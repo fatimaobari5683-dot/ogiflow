@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma, resetDatabase } from '../db';
 import { createDriver, createOrderFixtures, createZone } from '../factories';
-import { listDriverLocations, getDriverPerformance } from '@/modules/drivers/drivers.service';
+import { listDriverLocations, getDriverPerformance, getDriverLeaderboard } from '@/modules/drivers/drivers.service';
 import { createOrderForSupplier } from '@/modules/orders/orders.service';
 
 beforeEach(resetDatabase);
@@ -215,5 +215,88 @@ describe('getDriverPerformance — niveaux de performance (tiers)', () => {
     const driver = await createDriverWithStats(100, [5, 5, 5, 5, 4]); // moyenne 4.8
     const performance = await getDriverPerformance(driver.id);
     expect(performance.tier).toBe('PLATINUM');
+  });
+});
+
+describe('getDriverLeaderboard', () => {
+  /**
+   * Crée `n` livraisons DÉLIVRÉES à `deliveredAt` donné (par défaut
+   * maintenant) pour simuler des livraisons dans/hors de la fenêtre du
+   * classement — chaque livraison a sa propre commande (Delivery.orderId
+   * est unique).
+   */
+  async function createDeliveriesAt(driverId: string, n: number, deliveredAt: Date) {
+    const { supplier, product, address } = await createOrderFixtures();
+    for (let i = 0; i < n; i += 1) {
+      const order = await createOrderForSupplier({
+        supplierId: supplier.id,
+        customer: { fullName: `Client Leaderboard ${i}`, phone: `+2126${Date.now().toString().slice(-6)}${i}${Math.floor(Math.random() * 10)}` },
+        address: { fullAddress: address.fullAddress, city: address.city, zoneId: address.zoneId ?? undefined },
+        items: [{ productId: product.id, quantity: 1 }],
+        deliveryFee: 15,
+      });
+      await prisma.delivery.create({ data: { orderId: order.id, driverId, deliveredAt } });
+    }
+  }
+
+  it('classe les livreurs par nombre de livraisons décroissant sur la période', async () => {
+    const { driver: top } = await createDriver();
+    const { driver: middle } = await createDriver();
+    const { driver: bottom } = await createDriver();
+    await createDeliveriesAt(top.id, 5, new Date());
+    await createDeliveriesAt(middle.id, 3, new Date());
+    await createDeliveriesAt(bottom.id, 1, new Date());
+
+    const board = await getDriverLeaderboard('WEEK');
+    expect(board.map((e) => e.driverId)).toEqual([top.id, middle.id, bottom.id]);
+    expect(board.map((e) => e.rank)).toEqual([1, 2, 3]);
+  });
+
+  it("exclut un livreur sans aucune livraison sur la période", async () => {
+    const { driver: active } = await createDriver();
+    const { driver: idle } = await createDriver();
+    await createDeliveriesAt(active.id, 2, new Date());
+
+    const board = await getDriverLeaderboard('WEEK');
+    expect(board.map((e) => e.driverId)).toContain(active.id);
+    expect(board.map((e) => e.driverId)).not.toContain(idle.id);
+  });
+
+  it('ignore les livraisons hors de la fenêtre WEEK mais les compte en MONTH', async () => {
+    const { driver } = await createDriver();
+    const twentyDaysAgo = new Date(Date.now() - 20 * 86_400_000);
+    await createDeliveriesAt(driver.id, 4, twentyDaysAgo);
+
+    const weekBoard = await getDriverLeaderboard('WEEK');
+    expect(weekBoard.map((e) => e.driverId)).not.toContain(driver.id);
+
+    const monthBoard = await getDriverLeaderboard('MONTH');
+    const entry = monthBoard.find((e) => e.driverId === driver.id);
+    expect(entry?.deliveries).toBe(4);
+  });
+
+  it("affiche le palier réel (calculé sur tout l'historique), pas un palier recalculé sur la seule période affichée", async () => {
+    const { driver } = await createDriver();
+    // 50 livraisons + note 4.5 de moyenne, hors même de la fenêtre MONTH (30j) → GOLD réel.
+    const longAgo = new Date(Date.now() - 40 * 86_400_000);
+    await createDeliveriesAt(driver.id, 50, longAgo);
+
+    const deliveries = await prisma.delivery.findMany({ where: { driverId: driver.id } });
+    await prisma.deliveryAttempt.createMany({
+      data: deliveries.map((d) => ({ deliveryId: d.id, driverId: driver.id, attemptNumber: 1, result: 'SUCCESS' as const })),
+    });
+
+    const orders = await prisma.order.findMany({ where: { delivery: { driverId: driver.id } }, take: 2 });
+    await prisma.deliveryReview.createMany({
+      data: orders.map((o, i) => ({ orderId: o.id, driverId: driver.id, rating: i === 0 ? 4 : 5 })), // moyenne 4.5
+    });
+
+    // Une seule livraison DANS la fenêtre du mois pour apparaître au classement.
+    await createDeliveriesAt(driver.id, 1, new Date());
+
+    const board = await getDriverLeaderboard('MONTH');
+    const entry = board.find((e) => e.driverId === driver.id);
+    expect(entry?.tier).toBe('GOLD');
+    expect(entry?.deliveries).toBe(1); // le classement lui-même reste bien scopé à la période
   });
 });

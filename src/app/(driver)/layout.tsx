@@ -48,6 +48,9 @@ export default async function DriverLayout({ children }: { children: React.React
         <Link href="/earnings" className="block text-sm text-brand-600 hover:underline">
           Mes gains
         </Link>
+        <Link href="/leaderboard" className="block text-sm text-brand-600 hover:underline">
+          Classement
+        </Link>
         <Link href="/documents" className="block text-sm text-brand-600 hover:underline">
           Mes documents
         </Link>

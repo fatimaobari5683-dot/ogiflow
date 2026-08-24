@@ -419,6 +419,24 @@ atteint ; ce n'est pas un système "à l'heure pile" sans intervention.
 
 ---
 
+## 20. Classement des livreurs
+
+**Inspiré de** : Uber Pro / Grab Rewards — un classement hebdomadaire/
+mensuel par volume de livraisons réussies, avec la note moyenne en
+départage.
+
+**Maintenant** : `/leaderboard` (app livreur) affiche le top 20, la
+position du livreur connecté mise en avant même hors du top 20, filtrable
+par semaine/mois glissant. Le badge de palier affiché reste le **palier
+réel** du livreur (calculé sur tout son historique, comme sur `/earnings`)
+— jamais recalculé sur la seule période affichée, pour ne pas donner
+l'impression que changer de filtre "change" le palier de quelqu'un.
+
+**Code** : `getDriverLeaderboard` (`drivers.service.ts`, réutilise
+`computeDriverTier` désormais exporté), page `/(driver)/leaderboard`
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel

@@ -167,7 +167,7 @@ const TIER_THRESHOLDS: { tier: DriverTier; minDeliveries: number; minRating: num
   { tier: 'SILVER', minDeliveries: 20, minRating: 4.0 },
 ];
 
-function computeDriverTier(successfulDeliveries: number, averageRating: number | null): DriverTier {
+export function computeDriverTier(successfulDeliveries: number, averageRating: number | null): DriverTier {
   if (averageRating === null) return 'BRONZE';
   const match = TIER_THRESHOLDS.find((t) => successfulDeliveries >= t.minDeliveries && averageRating >= t.minRating);
   return match?.tier ?? 'BRONZE';
@@ -222,6 +222,71 @@ export async function getDriverPerformance(driverId: string): Promise<DriverPerf
     reviewCount: ratingAggregate._count,
     tier: computeDriverTier(successfulAttempts, ratingAggregate._avg.rating),
   };
+}
+
+export interface LeaderboardEntry {
+  driverId: string;
+  driverCode: string;
+  firstName: string;
+  lastNameInitial: string;
+  city: string | null;
+  tier: DriverTier;
+  deliveries: number;
+  averageRating: number | null;
+  rank: number;
+}
+
+/**
+ * Classement des livreurs — inspiré des récompenses Uber Pro/Grab :
+ * uniquement informatif, jamais consulté par le dispatch (même discipline
+ * que le palier dont il affiche le badge). Classé par nombre de livraisons
+ * RÉUSSIES sur la période (semaine/mois glissant), note moyenne en
+ * départage — mais le badge de palier affiché reste le palier réel du
+ * livreur (calculé sur tout son historique, comme partout ailleurs dans
+ * l'app), pas un palier recalculé sur la seule période affichée : changer
+ * de période ne doit jamais faire "changer de palier" sous les yeux du
+ * livreur, ce serait incohérent avec ce qu'il voit sur /earnings.
+ */
+export async function getDriverLeaderboard(period: 'WEEK' | 'MONTH'): Promise<LeaderboardEntry[]> {
+  const since = new Date(Date.now() - (period === 'WEEK' ? 7 : 30) * 86_400_000);
+
+  const drivers = await prisma.driver.findMany({
+    where: { status: { notIn: ['REJECTED', 'SUSPENDED', 'PENDING_APPROVAL'] } },
+    select: {
+      id: true,
+      driverCode: true,
+      user: { select: { firstName: true, lastName: true } },
+      baseZone: { select: { city: true } },
+    },
+  });
+  const driverIds = drivers.map((d) => d.id);
+
+  const [periodDeliveries, periodRatings, lifetimeSuccesses, lifetimeRatings] = await Promise.all([
+    prisma.delivery.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds }, deliveredAt: { gte: since } }, _count: true }),
+    prisma.deliveryReview.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds }, createdAt: { gte: since } }, _avg: { rating: true } }),
+    prisma.deliveryAttempt.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds }, result: 'SUCCESS' }, _count: true }),
+    prisma.deliveryReview.groupBy({ by: ['driverId'], where: { driverId: { in: driverIds } }, _avg: { rating: true } }),
+  ]);
+
+  const periodDeliveryCount = new Map(periodDeliveries.map((d) => [d.driverId, d._count]));
+  const periodRatingByDriver = new Map(periodRatings.map((r) => [r.driverId, r._avg.rating]));
+  const lifetimeSuccessCount = new Map(lifetimeSuccesses.map((d) => [d.driverId, d._count]));
+  const lifetimeRatingByDriver = new Map(lifetimeRatings.map((r) => [r.driverId, r._avg.rating]));
+
+  return drivers
+    .map((d) => ({
+      driverId: d.id,
+      driverCode: d.driverCode,
+      firstName: d.user.firstName,
+      lastNameInitial: d.user.lastName.trim().charAt(0).toUpperCase() + '.',
+      city: d.baseZone?.city ?? null,
+      tier: computeDriverTier(lifetimeSuccessCount.get(d.id) ?? 0, lifetimeRatingByDriver.get(d.id) ?? null),
+      deliveries: periodDeliveryCount.get(d.id) ?? 0,
+      averageRating: periodRatingByDriver.get(d.id) ?? null,
+    }))
+    .filter((entry) => entry.deliveries > 0)
+    .sort((a, b) => b.deliveries - a.deliveries || (b.averageRating ?? 0) - (a.averageRating ?? 0))
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
 export async function getDriverProfile(driverId: string) {
