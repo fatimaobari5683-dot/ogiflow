@@ -35,6 +35,9 @@ export const registerSchema = z
     // mise en service.
     address: z.string().min(5, 'Adresse trop courte').max(200).optional(),
     baseZoneId: z.string().min(1).optional(),
+    // Code de parrainage d'un livreur déjà inscrit — optionnel, jamais
+    // bloquant s'il est invalide (voir referrals.service.ts, linkReferral).
+    referralCode: z.string().min(4).max(12).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.role === 'SUPPLIER' && !data.companyName) {

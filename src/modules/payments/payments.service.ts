@@ -232,15 +232,15 @@ export async function getDriverEarningsSummary(driverId: string): Promise<Driver
   const [driver, payoutToday, payoutThisWeek, payoutThisMonth, deliveredToday] = await Promise.all([
     prisma.driver.findUniqueOrThrow({ where: { id: driverId }, select: { walletBalance: true } }),
     prisma.transaction.aggregate({
-      where: { driverId, type: 'DRIVER_PAYOUT', createdAt: { gte: todayStart } },
+      where: { driverId, type: { in: ['DRIVER_PAYOUT', 'REFERRAL_BONUS'] }, createdAt: { gte: todayStart } },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
-      where: { driverId, type: 'DRIVER_PAYOUT', createdAt: { gte: weekStart } },
+      where: { driverId, type: { in: ['DRIVER_PAYOUT', 'REFERRAL_BONUS'] }, createdAt: { gte: weekStart } },
       _sum: { amount: true },
     }),
     prisma.transaction.aggregate({
-      where: { driverId, type: 'DRIVER_PAYOUT', createdAt: { gte: monthStart } },
+      where: { driverId, type: { in: ['DRIVER_PAYOUT', 'REFERRAL_BONUS'] }, createdAt: { gte: monthStart } },
       _sum: { amount: true },
     }),
     prisma.delivery.count({ where: { driverId, deliveredAt: { gte: todayStart } } }),

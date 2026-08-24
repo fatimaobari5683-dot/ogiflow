@@ -19,7 +19,7 @@ interface ZoneOption {
   city: string;
 }
 
-export function RegisterForm({ role }: { role: 'SUPPLIER' | 'DRIVER' }) {
+export function RegisterForm({ role, defaultReferralCode }: { role: 'SUPPLIER' | 'DRIVER'; defaultReferralCode?: string }) {
   const router = useRouter();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -29,6 +29,7 @@ export function RegisterForm({ role }: { role: 'SUPPLIER' | 'DRIVER' }) {
   const [companyName, setCompanyName] = useState('');
   const [vehicleType, setVehicleType] = useState('MOTORCYCLE');
   const [address, setAddress] = useState('');
+  const [referralCode, setReferralCode] = useState(defaultReferralCode ?? '');
   const [zones, setZones] = useState<ZoneOption[]>([]);
   const [zonesError, setZonesError] = useState(false);
   const [city, setCity] = useState('');
@@ -74,7 +75,9 @@ export function RegisterForm({ role }: { role: 'SUPPLIER' | 'DRIVER' }) {
           email: email || undefined,
           password,
           role,
-          ...(role === 'SUPPLIER' ? { companyName } : { vehicleType, address, baseZoneId: baseZoneId || undefined }),
+          ...(role === 'SUPPLIER'
+            ? { companyName }
+            : { vehicleType, address, baseZoneId: baseZoneId || undefined, referralCode: referralCode.trim() || undefined }),
         }),
       });
       router.push('/login?registered=1');
@@ -183,6 +186,16 @@ export function RegisterForm({ role }: { role: 'SUPPLIER' | 'DRIVER' }) {
               </p>
             </>
           )}
+
+          <Field id="referralCode" label="Code de parrainage (optionnel)">
+            <input
+              id="referralCode"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              placeholder="Ex: AB3XQ9K"
+              className={`${inputClass} uppercase tracking-widest`}
+            />
+          </Field>
         </>
       )}
 

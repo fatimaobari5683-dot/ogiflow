@@ -198,6 +198,62 @@ serveur, aucun service externe)
 
 ---
 
+## 12. Double authentification (MFA/TOTP)
+
+**Inspiré de** : la double authentification par application (Google
+Authenticator, Authy) proposée par toutes les grandes plateformes pour les
+comptes à enjeu financier.
+
+**Avant** : `User.mfaEnabled`/`mfaSecret` existaient déjà en base et
+`login()` savait déjà bifurquer dessus, mais `verifyMfaCode` était un stub
+qui levait systématiquement une erreur — la fonctionnalité était
+"branchée" en façade mais totalement inopérante, sans aucun flux
+d'activation nulle part.
+
+**Maintenant** : activation en deux temps (génération du secret + QR code,
+puis confirmation par un vrai code à 6 chiffres avant que le compte ne soit
+verrouillé derrière), connexion qui exige le code une fois activée,
+désactivation protégée par re-saisie du mot de passe. Le changement de mot
+de passe (`changePasswordSchema`, jusque-là orphelin) a été implémenté au
+même moment et révoque automatiquement les autres sessions actives.
+
+**Code** : `src/modules/auth/auth.service.ts` (`generateMfaSecret`,
+`confirmMfaEnrollment`, `disableMfa`, `changePassword`), librairie `otplib`,
+`/api/v1/auth/mfa/*`, `/api/v1/auth/change-password`, page `/account`
+(`src/components/account/MfaSettings.tsx`)
+
+---
+
+## 13. Programme de parrainage livreur
+
+**Inspiré de** : le parrainage chauffeur d'Uber/Grab — un livreur actif
+parraine un nouveau livreur, les deux touchent une prime une fois que le
+filleul a fait ses preuves.
+
+**Pourquoi limité aux livreurs** (et pas aux clients, contrairement à un
+parrainage classique type Uber Eats/DoorDash) : LogiFlow n'a pas de
+compte client — les clients sont créés par les fournisseurs à la commande,
+sans inscription ni connexion. Un programme de parrainage client aurait
+d'abord nécessité de construire tout un système de compte/connexion client,
+hors périmètre de cette itération. Les livreurs, eux, ont déjà inscription,
+compte et portefeuille (`walletBalance`) — le parrainage s'y greffe
+proprement sans rien inventer.
+
+**Maintenant** : chaque livreur reçoit un code personnel à l'inscription
+(partageable en un clic depuis `/referrals`, ou via un lien
+`/register/driver?ref=CODE` qui pré-remplit le champ). Un nouveau livreur
+peut saisir le code d'un parrain à son inscription. Dès que le filleul
+totalise 15 livraisons réussies, le parrain touche 300 MAD et le filleul
+150 MAD, versés automatiquement (verrouillé par `referralRewardedAt` :
+la prime n'est jamais versée deux fois, même si l'événement est rejoué).
+
+**Code** : `Driver.referralCode`/`referredById`/`referralRewardedAt`,
+`src/modules/drivers/referrals.service.ts`,
+`src/modules/drivers/referrals.events.ts` (déclenché sur `ORDER_DELIVERED`,
+comme l'encaissement COD), page `/(driver)/referrals`
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel
@@ -224,13 +280,31 @@ serveur, aucun service externe)
   `DeliveryReview.rating` est un entier en base ; un test qui y insérait une
   moyenne déjà calculée (4.5, 4.8) se la faisait tronquer silencieusement.
   Corrigé en construisant la moyenne à partir de plusieurs avis entiers.
+- **Bordereau imprimable sur 2 pages au lieu d'une** (signalé par
+  l'utilisateur via le PDF généré) — `min-h-screen` n'était pas neutralisé
+  en media `print`, ajoutant une page blanche. Corrigé et vérifié en
+  générant un vrai PDF (comptage des pages dans les octets bruts).
+- **Race condition sur la numérotation des transactions financières** —
+  `nextTransactionReferences` calculait la prochaine référence via
+  `COUNT(*) + 1`, non atomique. Invisible tant qu'un seul processus créait
+  des `Transaction` par commande ; exposée en ajoutant un second handler
+  concurrent sur le même événement `ORDER_DELIVERED` (la prime de
+  parrainage, versée en parallèle de l'encaissement COD) — les deux
+  handlers lisaient le même compteur de départ et entraient en collision
+  sur l'unicité de `reference`. Corrigée en remplaçant le compteur par une
+  vraie séquence Postgres (`nextval`, atomique par construction), qui
+  profite aussi à tous les autres appelants (settlements, indemnités).
 
 ## Ce qui n'a délibérément pas été fait
 
 - **Optimisation de tournées multi-arrêts** — changement d'architecture trop
   lourd pour la valeur immédiate (LogiFlow assigne une livraison à la fois).
-- **Programme de parrainage** — pas de demande explicite, aurait nécessité
-  un système de crédits/promotions plus large que les codes promo actuels.
+- **Programme de parrainage client** — LogiFlow n'a pas de compte client
+  (voir section 13) ; seul le parrainage livreur a été construit.
 - **Paiement en ligne intégré (wallet, carte bancaire)** — nécessite une
   intégration avec un prestataire de paiement réel, hors périmètre d'une
   session de développement sans compte fournisseur externe.
+- **SMS/Email/Push réels** — seul un provider de secours (log structuré)
+  est branché ; aucun fournisseur (Twilio, etc.) n'est intégré.
+- **Stockage documents sur S3/cloud** — implémentation disque local
+  uniquement pour l'instant (`LocalDiskDocumentStorage`).

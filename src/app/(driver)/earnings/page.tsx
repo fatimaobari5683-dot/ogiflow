@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 const TRANSACTION_LABELS: Record<string, string> = {
   COD_COLLECTION: 'Encaissement client',
   DRIVER_PAYOUT: 'Votre rémunération',
+  REFERRAL_BONUS: 'Prime de parrainage',
   REFUND: 'Remboursement',
   ADJUSTMENT: 'Ajustement',
 };
@@ -18,6 +19,7 @@ const TRANSACTION_LABELS: Record<string, string> = {
 // de laisser croire que tout mouvement listé est un gain.
 const IS_EARNING: Record<string, boolean> = {
   DRIVER_PAYOUT: true,
+  REFERRAL_BONUS: true,
   ADJUSTMENT: true,
   REFUND: false,
   COD_COLLECTION: false,

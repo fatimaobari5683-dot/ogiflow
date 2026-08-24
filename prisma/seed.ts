@@ -121,6 +121,7 @@ async function main() {
     { email: 'driver3@logiflow.ma', phone: '+212600000023', firstName: 'Nabil', lastName: 'Chraibi', city: 'Marrakech', address: '15 Rue de la Liberté, Guéliz, Marrakech' },
   ] as const;
   const driverUsers = await Promise.all(driverDefs.map((u) => createUserIfMissing({ ...u, role: 'DRIVER' })));
+  const demoDrivers: Awaited<ReturnType<typeof prisma.driver.upsert>>[] = [];
 
   for (const [index, user] of driverUsers.entries()) {
     const driverZone = zonesByCity.get(driverDefs[index]!.city)!;
@@ -169,6 +170,25 @@ async function main() {
       // Control Tower — son assurance expire dans 12 jours.
       index === 1 ? { VEHICLE_INSURANCE: 12 } : undefined
     );
+
+    // Code de parrainage stable et lisible pour la démo (REF-DRV001, ...) —
+    // jamais régénéré sur un reseed déjà exécuté, comme baseZoneId/driverCode.
+    if (!driver.referralCode) {
+      await prisma.driver.update({
+        where: { id: driver.id },
+        data: { referralCode: `REF-DRV${String(index + 1).padStart(3, '0')}` },
+      });
+    }
+    demoDrivers.push(driver);
+  }
+
+  // DRV-001 parraine DRV-002, qui parraine DRV-003 — chaîne de démonstration
+  // pour l'écran /referrals (voir referrals.service.ts).
+  if (demoDrivers[1] && !demoDrivers[1].referredById) {
+    await prisma.driver.update({ where: { id: demoDrivers[1].id }, data: { referredById: demoDrivers[0]!.id } });
+  }
+  if (demoDrivers[2] && !demoDrivers[2].referredById) {
+    await prisma.driver.update({ where: { id: demoDrivers[2].id }, data: { referredById: demoDrivers[1]!.id } });
   }
 
   const customerUser = await createUserIfMissing({

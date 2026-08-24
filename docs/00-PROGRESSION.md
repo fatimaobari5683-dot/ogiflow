@@ -1022,6 +1022,52 @@ mobile-first), **Portail fournisseur** (SUPPLIER). Routage automatique par
 rôle depuis `/`, aucune boucle de redirection, testé croisé dans les trois
 sens.
 
+## ✅ Double authentification (MFA) + Programme de parrainage livreur (2026-08-24)
+
+**MFA (TOTP)** — `User.mfaEnabled`/`mfaSecret` existaient déjà en base et `login()`
+savait déjà bifurquer dessus, mais `verifyMfaCode` était un stub qui levait
+systématiquement une erreur : la fonctionnalité était câblée en façade mais
+totalement inopérante, et aucun flux d'activation n'existait nulle part.
+Implémenté avec `otplib` : activation en deux temps (secret + QR code, puis
+confirmation par un vrai code à 6 chiffres avant verrouillage du compte),
+connexion qui exige le code une fois activée, désactivation protégée par
+re-saisie du mot de passe. Le changement de mot de passe (`changePasswordSchema`,
+jusque-là orphelin — aucune route/service/UI) a été implémenté en même temps
+et révoque les autres sessions actives. Page `/account` créée (partagée entre
+tous les rôles, hors des groupes de layout). Vérifié en direct : QR généré,
+code TOTP réellement calculé via `otplib` côté script de vérification (comme
+un vrai gestionnaire de mots de passe le ferait), connexion bloquée sans code,
+acceptée avec le bon code, rejetée avec un mauvais.
+
+**Programme de parrainage livreur** — inspiré du parrainage chauffeur
+Uber/Grab, volontairement limité aux livreurs (LogiFlow n'a pas de compte
+client : les clients sont créés par les fournisseurs à la commande, sans
+inscription — construire un système de compte client aurait été hors
+périmètre). Chaque livreur reçoit un code personnel à l'inscription,
+partageable via `/referrals` ou un lien `/register/driver?ref=CODE` qui
+pré-remplit le formulaire. Un nouveau livreur peut saisir le code d'un
+parrain ; à 15 livraisons réussies, le parrain touche 300 MAD et le filleul
+150 MAD, versés automatiquement et une seule fois (verrou `referralRewardedAt`).
+
+**Bug réel trouvé et corrigé pendant cette implémentation** : ajouter un
+second créateur de `Transaction` (la prime de parrainage) sur l'événement
+`ORDER_DELIVERED` — déjà consommé par l'encaissement COD — a exposé une race
+condition préexistante dans `nextTransactionReferences` : la référence
+suivante était calculée par `COUNT(*) + 1`, non atomique, invisible tant
+qu'un seul processus créait des transactions par commande. Les deux handlers
+tournent en parallèle (`Promise.allSettled` dans le bus d'événements) et
+pouvaient lire le même compteur de départ, provoquant une collision
+d'unicité sur `reference`. Corrigé en remplaçant le compteur par une vraie
+séquence Postgres (`nextval`, atomique par construction) — bénéficie aussi à
+tous les autres appelants (settlements, indemnités course blanche). Trouvé
+en écrivant un test d'intégration qui déclenche réellement l'événement,
+jamais en lisant le code.
+
+Suite complète (409 tests) verte à deux reprises après le fix. Vérifié en
+direct : code affiché, filleul listé avec sa progression réelle, lien
+d'inscription pré-rempli, inscription d'un nouveau livreur avec le code
+confirmée en base (rattachement correct au parrain).
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 1. **Import CSV de commandes (fournisseur)** — le formulaire un-par-un existe et fonctionne ; l'import en masse reste à faire (même service `createOrderForSupplier` sous-jacent, juste un parseur CSV + validation ligne par ligne en plus)

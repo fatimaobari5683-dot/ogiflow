@@ -289,6 +289,20 @@ model Driver {
   baseZoneId         String?
   baseZone           Zone?        @relation("DriverBaseZone", fields: [baseZoneId], references: [id])
 
+  // Programme de parrainage livreur (inspiré Uber/Grab) — `referralCode` est
+  // le code personnel de CE livreur, à partager ; `referredById` pointe vers
+  // le livreur qui l'a parrainé (renseigné une seule fois, à l'inscription).
+  // Nullable : généré/renseigné par register() pour toute nouvelle
+  // inscription, jamais rétroactivement pour les livreurs déjà existants —
+  // cohérent avec baseZoneId ci-dessus. `referralRewardedAt` sert de verrou
+  // d'idempotence : la prime n'est versée qu'une seule fois, quand ce champ
+  // passe de null à une date (voir referrals.service.ts).
+  referralCode       String?      @unique
+  referredById       String?
+  referredBy         Driver?      @relation("DriverReferrals", fields: [referredById], references: [id])
+  referrals          Driver[]     @relation("DriverReferrals")
+  referralRewardedAt DateTime?
+
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -616,6 +630,7 @@ enum TransactionType {
   COMMISSION_DEDUCTION
   SUPPLIER_PAYOUT
   DRIVER_PAYOUT
+  REFERRAL_BONUS
   REFUND
   ADJUSTMENT
 }

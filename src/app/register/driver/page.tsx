@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 
-export default function RegisterDriverPage() {
+export default function RegisterDriverPage({ searchParams }: { searchParams: { ref?: string } }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface-page px-4 py-10">
       <div className="w-full max-w-sm">
@@ -10,7 +10,7 @@ export default function RegisterDriverPage() {
           <p className="mt-1 text-sm text-ink-secondary">Créer un compte livreur</p>
         </div>
 
-        <RegisterForm role="DRIVER" />
+        <RegisterForm role="DRIVER" defaultReferralCode={searchParams.ref} />
 
         <p className="mt-6 text-center text-sm text-ink-muted">
           <Link href="/register" className="text-brand-600 hover:underline">

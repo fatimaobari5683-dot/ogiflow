@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import { generateSecret as generateTotpSecret, generateURI as generateTotpUri, verify as verifyTotp } from 'otplib';
 import { prisma } from '@/infrastructure/database/client';
+import { assignReferralCode, linkReferral } from '@/modules/drivers/referrals.service';
 import type { RegisterInput, LoginInput } from './auth.validators';
 
 const MFA_ISSUER = 'LogiFlow';
@@ -86,6 +87,13 @@ export async function register(input: RegisterInput) {
     // où il veut travailler.
     if (input.baseZoneId) {
       await prisma.driverZone.create({ data: { driverId: driver.id, zoneId: input.baseZoneId } });
+    }
+    // Chaque livreur reçoit son propre code de parrainage dès l'inscription
+    // (programme décrit dans referrals.service.ts) ; s'il a lui-même été
+    // parrainé, le rattachement est silencieux et jamais bloquant.
+    await assignReferralCode(driver.id);
+    if (input.referralCode) {
+      await linkReferral(driver.id, input.referralCode);
     }
   } else if (input.role === 'CUSTOMER') {
     await prisma.customer.create({

@@ -8,9 +8,11 @@ export async function register() {
     const { registerDispatchEventHandlers } = await import('@/modules/dispatch/dispatch.events');
     const { registerPaymentEventHandlers } = await import('@/modules/payments/payments.events');
     const { registerNotificationEventHandlers } = await import('@/modules/notifications/notifications.events');
+    const { registerDriverReferralEventHandlers } = await import('@/modules/drivers/referrals.events');
     registerDispatchEventHandlers();
     registerPaymentEventHandlers();
     registerNotificationEventHandlers();
-    console.info('[BOOTSTRAP] Handlers d\'événements domaine enregistrés (dispatch, payments, notifications).');
+    registerDriverReferralEventHandlers();
+    console.info('[BOOTSTRAP] Handlers d\'événements domaine enregistrés (dispatch, payments, notifications, parrainage).');
   }
 }
