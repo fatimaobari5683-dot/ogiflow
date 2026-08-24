@@ -1122,9 +1122,36 @@ souris dessiné sur le canvas (signature), les deux confirmés sans erreur ;
 puis relu comme admin — l'image s'affiche réellement (`naturalWidth/Height:
 1×1`, exactement la taille du PNG de test envoyé, pas une image cassée).
 
+## ✅ Import CSV de commandes en masse (2026-08-24)
+
+Le formulaire un-par-un (`CreateOrderForm.tsx`) fonctionnait, mais un
+fournisseur qui reçoit ses commandes par un autre canal (email, téléphone,
+autre système) devait tout ressaisir à la main. Ajouté un import CSV
+(`/supplier/orders/import`) : une ligne = une commande à un seul article,
+identifiée par SKU produit — réutilise `createOrderForSupplier` ligne par
+ligne, donc aucune règle métier dupliquée (prix relu du catalogue,
+conformité documentaire, code promo).
+
+Choix délibéré : une ligne invalide n'interrompt jamais l'import entier — un
+rapport ligne par ligne (succès avec lien vers la commande, ou raison de
+l'échec) permet de corriger et resoumettre juste les lignes en échec plutôt
+que de perdre tout un fichier de 200 lignes à cause d'une seule faute de
+frappe. Parsing via `papaparse` plutôt qu'un `split(',')` fait main : une
+adresse contient presque toujours une virgule, un parseur CSV naïf casse
+silencieusement dessus.
+
+6 nouveaux tests (import multi-lignes, échec partiel sans bloquer le reste,
+numéro de ligne correct, isolation des SKU entre fournisseurs, code promo,
+fichier vide). Suite complète verte (432/432). Vérifié en direct : import
+d'un fichier à 3 lignes (2 valides avec de vrais SKU du catalogue, 1 avec un
+SKU inexistant) — rapport correct ("2 commandes créées · 1 échec", l'erreur
+nomme bien le SKU manquant), et la commande créée s'ouvre avec le vrai nom
+client et le vrai prix catalogue (pas un prix du fichier, qui n'en contient
+pas).
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
-1. **Import CSV de commandes (fournisseur)** — le formulaire un-par-un existe et fonctionne ; l'import en masse reste à faire (même service `createOrderForSupplier` sous-jacent, juste un parseur CSV + validation ligne par ligne en plus)
+~~1. Import CSV de commandes (fournisseur)~~ — fait, voir section 16 (FONCTIONNALITES-PLATEFORMES.md)
 2. **Providers de notification réels** — brancher Twilio (SMS/WhatsApp) et Resend/SES (email) derrière `NotificationProvider` (nécessite des identifiants du côté utilisateur)
 3. **Middleware RBAC global** — actuellement : garde par route via `requirePermission`/`requireAnyPermission`/`requireDriverAccess`/`requireSupplierAccess`, fonctionnel, validé dans les 3 portails ET couvert par les tests d'intégration, mais pas centralisé
 4. **Étendre la couverture de tests** — payments/settlements/products/analytics n'ont pas encore leur fichier dédié (le chemin critique COD est couvert par `full-lifecycle.test.ts`, mais pas les cas limites : paiement prépayé/virement, contestation de versement, unicité SKU) ; ajouter aussi des tests sur les routes API elles-mêmes (RBAC HTTP), pas seulement la couche service ; brancher `npm test` en CI dès qu'il y a un dépôt git

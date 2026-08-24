@@ -312,6 +312,31 @@ l'affiche directement.
 
 ---
 
+## 16. Import de commandes en masse (CSV)
+
+**Inspiré de** : l'import CSV de commandes/produits proposé par la plupart
+des plateformes e-commerce/logistique pour les fournisseurs à volume — évite
+de ressaisir une à une des dizaines de commandes reçues par ailleurs (email,
+téléphone, autre système).
+
+**Maintenant** : un fournisseur dépose un fichier CSV (un modèle
+téléchargeable est généré avec un vrai SKU de son catalogue) ; chaque ligne
+= une commande à un seul article, réutilisant exactement
+`createOrderForSupplier` — même relecture serveur du prix catalogue (jamais
+un prix venant du fichier, qui n'en contient d'ailleurs pas), même
+vérification de conformité documentaire, même application de code promo. Une
+ligne invalide (SKU inconnu, téléphone mal formé...) échoue seule et
+n'interrompt jamais les suivantes : le rapport final liste chaque ligne avec
+son numéro, succès ou raison de l'échec, et un lien direct vers chaque
+commande créée.
+
+**Code** : `src/modules/orders/orders-import.service.ts` (parsing CSV via
+`papaparse`, gère les champs entre guillemets/virgules internes — une
+adresse contient presque toujours une virgule), `/api/v1/orders/import`,
+page `/supplier/orders/import`
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel
