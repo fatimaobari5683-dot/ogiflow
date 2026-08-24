@@ -254,6 +254,34 @@ comme l'encaissement COD), page `/(driver)/referrals`
 
 ---
 
+## 14. Multi-arrêts (un livreur porte plusieurs commandes à la fois)
+
+**Inspiré de** : le groupage de commandes (batching) chez Uber Eats/Glovo —
+un livreur en tournée peut se voir proposer un arrêt supplémentaire proche
+de son trajet plutôt que de rester exclu du dispatch tant qu'il n'a pas
+terminé sa course en cours.
+
+**Avant** : un livreur `BUSY` (une livraison assignée) disparaissait
+totalement du pool de candidats — un seul arrêt à la fois, quelle que soit
+sa proximité avec une nouvelle commande.
+
+**Maintenant** : un livreur `BUSY` reste candidat (dispatch, proposition
+manuelle, offre) tant qu'il porte moins de 3 livraisons actives
+(`MAX_CONCURRENT_DELIVERIES`). L'app livreur (`/missions`) ordonne ses
+arrêts par plus proche voisin successif depuis sa position actuelle
+(heuristique gloutonne, pas un solveur TSP complet — inutile sur 2-3
+arrêts) et les numérote ("Arrêt 1/2", "Arrêt 2/2"...). Le retour à
+`AVAILABLE` (`releaseDriverIfIdle`) était déjà conçu pour compter les
+livraisons restantes plutôt qu'un simple booléen — aucune modification n'a
+été nécessaire là, seuls les trois garde-fous "AVAILABLE uniquement"
+(dispatch, assignation directe, offre) ont été relâchés.
+
+**Code** : `MAX_CONCURRENT_DELIVERIES` (`dispatch.service.ts`),
+`sequenceByNearestNeighbor` (`src/shared/utils/geo.ts`), `getMyMissions`
+(`deliveries.service.ts`)
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel
@@ -297,8 +325,11 @@ comme l'encaissement COD), page `/(driver)/referrals`
 
 ## Ce qui n'a délibérément pas été fait
 
-- **Optimisation de tournées multi-arrêts** — changement d'architecture trop
-  lourd pour la valeur immédiate (LogiFlow assigne une livraison à la fois).
+- **Routage multi-arrêts sur réseau routier réel** — la section 14
+  implémente la capacité multi-livraisons et un ordre de tournée par plus
+  proche voisin (distance à vol d'oiseau) ; un vrai solveur d'itinéraire
+  (temps de trajet réel, sens de circulation) nécessiterait un service de
+  cartographie externe, hors périmètre ici.
 - **Programme de parrainage client** — LogiFlow n'a pas de compte client
   (voir section 13) ; seul le parrainage livreur a été construit.
 - **Paiement en ligne intégré (wallet, carte bancaire)** — nécessite une

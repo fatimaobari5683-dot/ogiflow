@@ -1,5 +1,12 @@
 import { prisma } from '@/infrastructure/database/client';
-import { computeDispatchScore, loadOrderForDispatch, assignDriverToOrder, getDispatchCandidates } from './dispatch.service';
+import {
+  computeDispatchScore,
+  loadOrderForDispatch,
+  assignDriverToOrder,
+  getDispatchCandidates,
+  MAX_CONCURRENT_DELIVERIES,
+} from './dispatch.service';
+import { TERMINAL_STATUSES } from '@/modules/orders/order-state-machine';
 import { queueAndSendNotification } from '@/modules/notifications/notifications.service';
 import { getIneligibleOwnerIds } from '@/modules/documents/documents.service';
 import type { DriverOffer } from '@prisma/client';
@@ -38,14 +45,26 @@ async function materializeExpiry<T extends DriverOffer>(offer: T): Promise<T> {
  * Propose une mission à un livreur précis — ne l'assigne PAS immédiatement.
  * Le livreur doit accepter explicitement (voir acceptOffer). Un livreur ne
  * peut avoir qu'une offre PENDING à la fois : on ne le sollicite pas sur
- * plusieurs courses simultanément.
+ * plusieurs courses simultanément — même un livreur déjà BUSY (multi-arrêts)
+ * ne reçoit qu'une seule proposition à la fois, jamais plusieurs en parallèle.
  */
 export async function createOffer(orderId: string, driverId: string) {
   const order = await loadOrderForDispatch(orderId);
   const driver = await prisma.driver.findUniqueOrThrow({ where: { id: driverId } });
 
-  if (driver.status !== 'AVAILABLE') {
+  if (driver.status !== 'AVAILABLE' && driver.status !== 'BUSY') {
     throw new OfferError(`Le livreur ${driver.driverCode} n'est pas disponible (statut actuel : ${driver.status}).`);
+  }
+
+  if (driver.status === 'BUSY') {
+    const activeLoad = await prisma.delivery.count({
+      where: { driverId, order: { status: { notIn: TERMINAL_STATUSES } } },
+    });
+    if (activeLoad >= MAX_CONCURRENT_DELIVERIES) {
+      throw new OfferError(
+        `Le livreur ${driver.driverCode} a déjà ${activeLoad} livraisons actives (capacité maximale : ${MAX_CONCURRENT_DELIVERIES}).`
+      );
+    }
   }
 
   const ineligibleIds = await getIneligibleOwnerIds('DRIVER', [driverId]);

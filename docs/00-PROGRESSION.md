@@ -1068,6 +1068,32 @@ direct : code affiché, filleul listé avec sa progression réelle, lien
 d'inscription pré-rempli, inscription d'un nouveau livreur avec le code
 confirmée en base (rattachement correct au parrain).
 
+## ✅ Multi-arrêts (2026-08-24)
+
+Un livreur pouvait porter une seule livraison active à la fois — trois
+garde-fous distincts ("le livreur doit être AVAILABLE") l'empêchaient
+d'être proposé/assigné à une commande supplémentaire tant qu'il n'avait pas
+terminé sa course en cours (`getDispatchCandidates`, `assignDriverToOrder`,
+`createOffer`). Ces trois points ont été relâchés pour accepter un livreur
+`BUSY` sous une capacité de 3 livraisons actives (`MAX_CONCURRENT_DELIVERIES`,
+`dispatch.service.ts`). Le mécanisme de retour à `AVAILABLE`
+(`releaseDriverIfIdle`) comptait déjà les livraisons restantes plutôt qu'un
+simple flag — il n'a nécessité aucune modification, une bonne surprise
+trouvée en l'auditant avant de toucher au reste. L'app livreur (`/missions`)
+ordonne maintenant ses arrêts par plus proche voisin successif depuis sa
+position GPS (`sequenceByNearestNeighbor`, `src/shared/utils/geo.ts`) et
+les numérote ("Arrêt 1/2", "Arrêt 2/2"...).
+
+18 nouveaux tests (capacité au dispatch/aux offres, libération partielle,
+séquencement par proximité), suite complète verte (422/422, deux passages).
+Vérifié en direct : un livreur BUSY avec 2 livraisons actives reste candidat
+au dispatch (`activeLoad: 2` affiché), et son app affiche bien "Arrêt 1/2" /
+"Arrêt 2/2" dans l'ordre du plus proche à la position réelle du livreur —
+pas dans l'ordre d'assignation. Un livreur préexistant déjà à 3 livraisons
+actives (donnée de test accumulée pendant cette session) a été correctement
+exclu des candidats d'une 4ᵉ commande, confirmant la limite de capacité en
+conditions réelles, pas seulement en test.
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 1. **Import CSV de commandes (fournisseur)** — le formulaire un-par-un existe et fonctionne ; l'import en masse reste à faire (même service `createOrderForSupplier` sous-jacent, juste un parseur CSV + validation ligne par ligne en plus)

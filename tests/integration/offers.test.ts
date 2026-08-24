@@ -50,11 +50,41 @@ describe('createOffer — ne force jamais l\'assignation', () => {
     await expect(createOffer(otherOrder.order.id, driver.id)).rejects.toThrow(OfferError);
   });
 
-  it("refuse une offre vers un livreur non disponible", async () => {
+  it("refuse une offre vers un livreur hors ligne", async () => {
     const { order, zone } = await createReadyOrder();
-    const { driver } = await createDriver({ zoneId: zone.id, status: 'BUSY' });
+    const { driver } = await createDriver({ zoneId: zone.id, status: 'OFFLINE' });
 
     await expect(createOffer(order.id, driver.id)).rejects.toThrow(OfferError);
+  });
+});
+
+describe('createOffer — multi-arrêts (capacité livreur)', () => {
+  it('propose une offre à un livreur BUSY tant qu\'il a de la capacité restante', async () => {
+    const { order: firstOrder, zone } = await createReadyOrder();
+    const { user: driverUser, driver } = await createDriver({ zoneId: zone.id });
+    const firstOffer = await createOffer(firstOrder.id, driver.id);
+    await acceptOffer(firstOffer.id, { actorId: driverUser.id, actorRole: 'DRIVER' });
+
+    const busyDriver = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
+    expect(busyDriver.status).toBe('BUSY');
+
+    const { order: secondOrder } = await createReadyOrder(zone.id);
+    const secondOffer = await createOffer(secondOrder.id, driver.id);
+    expect(secondOffer.status).toBe('PENDING');
+  });
+
+  it('refuse une offre vers un livreur BUSY qui a atteint sa capacité maximale', async () => {
+    const { zone } = await createReadyOrder();
+    const { user: driverUser, driver } = await createDriver({ zoneId: zone.id });
+
+    for (let i = 0; i < 3; i += 1) {
+      const { order } = await createReadyOrder(zone.id);
+      const offer = await createOffer(order.id, driver.id);
+      await acceptOffer(offer.id, { actorId: driverUser.id, actorRole: 'DRIVER' });
+    }
+
+    const { order: overflowOrder } = await createReadyOrder(zone.id);
+    await expect(createOffer(overflowOrder.id, driver.id)).rejects.toThrow(OfferError);
   });
 });
 

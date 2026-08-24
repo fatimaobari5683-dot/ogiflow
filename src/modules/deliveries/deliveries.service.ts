@@ -3,6 +3,7 @@ import type { Delivery, OrderStatus, DeliveryAttemptResult } from '@prisma/clien
 import { prisma } from '@/infrastructure/database/client';
 import { transitionOrderStatus } from '@/modules/orders/orders.service';
 import { TERMINAL_STATUSES } from '@/modules/orders/order-state-machine';
+import { sequenceByNearestNeighbor } from '@/shared/utils/geo';
 
 export class DeliveryError extends Error {
   statusCode: number;
@@ -220,18 +221,36 @@ export async function resolveFailedDelivery(
 /**
  * Missions actives du livreur (utilisé par l'app livreur) : toutes les
  * livraisons qui lui sont assignées et dont la commande n'est pas encore
- * dans un état terminal, triées par ordre d'assignation.
+ * dans un état terminal — ordonnées par plus proche voisin successif depuis
+ * sa position actuelle plutôt que par simple ordre d'assignation (multi-arrêts,
+ * voir MAX_CONCURRENT_DELIVERIES dans dispatch.service.ts) : un livreur qui
+ * porte 2-3 courses doit voir un ordre de tournée sensé, pas l'ordre dans
+ * lequel elles lui ont été proposées.
  */
 export async function getMyMissions(driverId: string) {
-  return prisma.delivery.findMany({
-    where: { driverId, order: { status: { notIn: TERMINAL_STATUSES } } },
-    include: {
-      order: {
-        include: { customer: true, address: true, items: { include: { product: true } } },
+  const [driver, deliveries] = await Promise.all([
+    prisma.driver.findUnique({ where: { id: driverId }, select: { currentLatitude: true, currentLongitude: true } }),
+    prisma.delivery.findMany({
+      where: { driverId, order: { status: { notIn: TERMINAL_STATUSES } } },
+      include: {
+        order: {
+          include: { customer: true, address: true, items: { include: { product: true } } },
+        },
       },
-    },
-    orderBy: { assignedAt: 'asc' },
-  });
+      orderBy: { assignedAt: 'asc' },
+    }),
+  ]);
+
+  const start =
+    driver?.currentLatitude != null && driver?.currentLongitude != null
+      ? { lat: Number(driver.currentLatitude), lng: Number(driver.currentLongitude) }
+      : null;
+
+  return sequenceByNearestNeighbor(start, deliveries, (delivery) =>
+    delivery.order.address.latitude != null && delivery.order.address.longitude != null
+      ? { lat: Number(delivery.order.address.latitude), lng: Number(delivery.order.address.longitude) }
+      : null
+  );
 }
 
 export async function getDeliveryDetail(orderId: string, context: ActorContext) {

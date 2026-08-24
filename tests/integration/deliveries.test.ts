@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { resetDatabase } from '../db';
+import { prisma, resetDatabase } from '../db';
 import { createOrderFixtures, createDriver, createUser } from '../factories';
 import { createOrderForSupplier, transitionOrderStatus } from '@/modules/orders/orders.service';
 import { assignDriverToOrder } from '@/modules/dispatch/dispatch.service';
-import { advanceDeliveryStatus, recordDeliveryAttempt, DeliveryError } from '@/modules/deliveries/deliveries.service';
+import { advanceDeliveryStatus, recordDeliveryAttempt, getMyMissions, DeliveryError } from '@/modules/deliveries/deliveries.service';
 
 beforeEach(resetDatabase);
 
@@ -102,5 +102,47 @@ describe('deliveries — la state machine des commandes reste la seule autorité
 
     // Rejouer la même transition doit échouer (PICKED_UP → PICKED_UP n'existe pas dans la state machine)
     await expect(advanceDeliveryStatus(order.id, 'PICKED_UP', ctx)).rejects.toThrow();
+  });
+});
+
+describe('getMyMissions — multi-arrêts', () => {
+  it("ordonne les missions par plus proche voisin depuis la position du livreur, pas par ordre d'assignation", async () => {
+    const { order: farOrder, driver, zone } = await createAssignedOrder();
+    // Positionne la commande "lointaine" à ~10km, puis assigne une seconde
+    // commande beaucoup plus proche de la position actuelle du livreur.
+    await prisma.address.update({
+      where: { id: farOrder.addressId },
+      data: { latitude: 33.66, longitude: -7.5898 },
+    });
+    await prisma.driver.update({ where: { id: driver.id }, data: { currentLatitude: 33.5731, currentLongitude: -7.5898 } });
+
+    const fixtures = await createOrderFixtures({ zoneId: zone.id });
+    const nearOrder = await createOrderForSupplier({
+      supplierId: fixtures.supplier.id,
+      customer: { fullName: 'Client Proche', phone: '+212600100201' },
+      address: { fullAddress: fixtures.address.fullAddress, city: fixtures.address.city, zoneId: zone.id, latitude: 33.5735, longitude: -7.5899 },
+      items: [{ productId: fixtures.product.id, quantity: 1 }],
+      deliveryFee: 20,
+    });
+    await transitionOrderStatus(nearOrder.id, 'CONFIRMED', {});
+    await transitionOrderStatus(nearOrder.id, 'READY_FOR_PICKUP', {});
+    await assignDriverToOrder(nearOrder.id, driver.id, {});
+
+    const missions = await getMyMissions(driver.id);
+    expect(missions).toHaveLength(2);
+    expect(missions[0]?.orderId).toBe(nearOrder.id); // le plus proche en premier, même assigné en second
+    expect(missions[1]?.orderId).toBe(farOrder.id);
+  });
+
+  it('ne retourne aucune commande dans un état terminal', async () => {
+    const { order, driverUser, driver } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const };
+    await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
+    await advanceDeliveryStatus(order.id, 'IN_TRANSIT', ctx);
+    await advanceDeliveryStatus(order.id, 'OUT_FOR_DELIVERY', ctx);
+    await recordDeliveryAttempt(order.id, { ...ctx, result: 'SUCCESS', proof: { type: 'OTP', data: { code: '000000' } } });
+
+    const missions = await getMyMissions(driver.id);
+    expect(missions).toHaveLength(0);
   });
 });

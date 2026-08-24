@@ -7,7 +7,9 @@ import {
   assignDriverToOrder,
   autoAssignBestDriver,
   countIneligibleAvailableDrivers,
+  releaseDriverIfIdle,
   DispatchError,
+  MAX_CONCURRENT_DELIVERIES,
 } from '@/modules/dispatch/dispatch.service';
 
 beforeEach(resetDatabase);
@@ -49,9 +51,9 @@ describe('dispatch — pré-conditions', () => {
     await expect(getDispatchCandidates(order.id)).rejects.toThrow(DispatchError);
   });
 
-  it("n'assigne jamais un livreur qui n'est pas AVAILABLE", async () => {
+  it("n'assigne jamais un livreur OFFLINE", async () => {
     const { order, zone } = await createReadyOrder();
-    const { driver } = await createDriver({ zoneId: zone.id, status: 'BUSY' });
+    const { driver } = await createDriver({ zoneId: zone.id, status: 'OFFLINE' });
 
     await expect(assignDriverToOrder(order.id, driver.id, {})).rejects.toThrow(DispatchError);
   });
@@ -124,6 +126,63 @@ describe('dispatch — scoring', () => {
     const delivery = await prisma.delivery.findUnique({ where: { orderId: order.id } });
     expect(delivery?.driverId).toBe(driver.id);
     expect(delivery?.assignedAt).not.toBeNull();
+  });
+});
+
+describe('dispatch — multi-arrêts (capacité livreur)', () => {
+  it('un livreur BUSY sous sa capacité reste candidat pour une commande supplémentaire', async () => {
+    const { order: firstOrder, zone } = await createReadyOrder();
+    const { driver } = await createDriver({ zoneId: zone.id });
+    await assignDriverToOrder(firstOrder.id, driver.id, {});
+
+    const updatedDriver = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
+    expect(updatedDriver.status).toBe('BUSY');
+
+    const { order: secondOrder } = await createReadyOrder({ zoneId: zone.id });
+    const candidates = await getDispatchCandidates(secondOrder.id);
+    expect(candidates.map((c) => c.driverId)).toContain(driver.id);
+
+    const result = await assignDriverToOrder(secondOrder.id, driver.id, {});
+    expect(result.order.status).toBe('ASSIGNED');
+
+    const activeLoad = await prisma.delivery.count({ where: { driverId: driver.id } });
+    expect(activeLoad).toBe(2);
+  });
+
+  it("un livreur qui a atteint sa capacité maximale disparaît des candidats et ne peut plus être assigné", async () => {
+    const { zone } = await createReadyOrder();
+    const { driver } = await createDriver({ zoneId: zone.id });
+
+    for (let i = 0; i < MAX_CONCURRENT_DELIVERIES; i += 1) {
+      const { order } = await createReadyOrder({ zoneId: zone.id });
+      await assignDriverToOrder(order.id, driver.id, {});
+    }
+
+    const { order: overflowOrder } = await createReadyOrder({ zoneId: zone.id });
+    const candidates = await getDispatchCandidates(overflowOrder.id);
+    expect(candidates.map((c) => c.driverId)).not.toContain(driver.id);
+
+    await expect(assignDriverToOrder(overflowOrder.id, driver.id, {})).rejects.toThrow(DispatchError);
+  });
+
+  it('releaseDriverIfIdle ne libère le livreur qu\'une fois TOUTES ses livraisons actives terminées', async () => {
+    const { order: firstOrder, zone } = await createReadyOrder();
+    const { driver } = await createDriver({ zoneId: zone.id });
+    await assignDriverToOrder(firstOrder.id, driver.id, {});
+    const { order: secondOrder } = await createReadyOrder({ zoneId: zone.id });
+    await assignDriverToOrder(secondOrder.id, driver.id, {});
+
+    // Une des deux commandes atteint un état terminal (simulé directement,
+    // hors sujet ici) — le livreur porte encore l'autre, il doit rester BUSY.
+    await prisma.order.update({ where: { id: firstOrder.id }, data: { status: 'CANCELLED' } });
+    await releaseDriverIfIdle(driver.id);
+    let updated = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
+    expect(updated.status).toBe('BUSY');
+
+    await prisma.order.update({ where: { id: secondOrder.id }, data: { status: 'CANCELLED' } });
+    await releaseDriverIfIdle(driver.id);
+    updated = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
+    expect(updated.status).toBe('AVAILABLE');
   });
 });
 

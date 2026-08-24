@@ -31,7 +31,9 @@ export default async function MissionsPage() {
           href={`/missions/${nextMission.order.id}`}
           className="block rounded-lg border-2 border-brand-500 bg-brand-50 p-4"
         >
-          <div className="text-xs font-medium uppercase tracking-wide text-brand-700">Prochaine livraison</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-brand-700">
+            {missions.length > 1 ? `Arrêt 1 / ${missions.length} — prochain` : 'Prochaine livraison'}
+          </div>
           <div className="mt-1 text-lg font-semibold text-ink-primary">{nextMission.order.customer.fullName}</div>
           <div className="text-sm text-ink-secondary">{nextMission.order.address.fullAddress}</div>
           <div className="mt-2 flex items-center justify-between">
@@ -52,7 +54,7 @@ export default async function MissionsPage() {
           </div>
         )}
 
-        {missions.slice(1).map((mission) => (
+        {missions.slice(1).map((mission, index) => (
           <Link
             key={mission.id}
             href={`/missions/${mission.order.id}`}
@@ -60,7 +62,9 @@ export default async function MissionsPage() {
           >
             <div>
               <div className="font-medium text-ink-primary">{mission.order.customer.fullName}</div>
-              <div className="text-xs text-ink-muted">{mission.order.orderNumber}</div>
+              <div className="text-xs text-ink-muted">
+                Arrêt {index + 2} / {missions.length} · {mission.order.orderNumber}
+              </div>
             </div>
             <OrderStatusPill status={mission.order.status as OrderStatusValue} />
           </Link>

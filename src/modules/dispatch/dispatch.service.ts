@@ -33,6 +33,16 @@ const MAX_RELEVANT_LOAD = 5;
 const CANDIDATE_POOL_LIMIT = 10;
 
 /**
+ * Nombre maximum de livraisons actives qu'un même livreur peut porter en
+ * même temps (multi-arrêts, inspiré du groupage Uber Eats/Glovo) — un
+ * livreur BUSY sous ce seuil reste candidat à une commande supplémentaire ;
+ * au-delà, il redevient invisible au dispatch jusqu'à ce qu'une de ses
+ * livraisons se termine. 3 correspond à ce qu'un deux-roues/voiture peut
+ * raisonnablement porter en une tournée sans dégrader les délais.
+ */
+export const MAX_CONCURRENT_DELIVERIES = 3;
+
+/**
  * Seuil de "position obsolète" (voir DriverLocationPing.tsx — le livreur
  * ping toutes les 60s tant qu'il est en ligne). Signal visible pour
  * l'opérateur uniquement — ne filtre PAS les candidats : le score de
@@ -127,13 +137,18 @@ export async function loadOrderForDispatch(orderId: string): Promise<OrderWithAd
  * AVAILABLE dont un document obligatoire est manquant ou expiré n'apparaît
  * même pas parmi les candidats — ce n'est pas au dispatcher de s'en rendre
  * compte après coup.
+ *
+ * Un livreur BUSY reste candidat (multi-arrêts) tant qu'il n'a pas atteint
+ * MAX_CONCURRENT_DELIVERIES — `activeLoad`, déjà calculé par
+ * computeDispatchScore, sert de filtre post-scoring plutôt que de refaire une
+ * requête dédiée.
  */
 export async function getDispatchCandidates(orderId: string): Promise<DispatchCandidate[]> {
   const order = await loadOrderForDispatch(orderId);
-  const availableDrivers = await prisma.driver.findMany({ where: { status: 'AVAILABLE' } });
+  const candidateDrivers = await prisma.driver.findMany({ where: { status: { in: ['AVAILABLE', 'BUSY'] } } });
 
-  const ineligibleIds = await getIneligibleOwnerIds('DRIVER', availableDrivers.map((d) => d.id));
-  const eligibleDrivers = availableDrivers.filter((d) => !ineligibleIds.has(d.id));
+  const ineligibleIds = await getIneligibleOwnerIds('DRIVER', candidateDrivers.map((d) => d.id));
+  const eligibleDrivers = candidateDrivers.filter((d) => !ineligibleIds.has(d.id));
 
   const scored = await Promise.all(
     eligibleDrivers.map(async (driver) => ({
@@ -143,7 +158,10 @@ export async function getDispatchCandidates(orderId: string): Promise<DispatchCa
     }))
   );
 
-  return scored.sort((a, b) => b.score - a.score).slice(0, CANDIDATE_POOL_LIMIT);
+  return scored
+    .filter((c) => c.activeLoad < MAX_CONCURRENT_DELIVERIES)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, CANDIDATE_POOL_LIMIT);
 }
 
 /**
@@ -167,10 +185,24 @@ export async function assignDriverToOrder(orderId: string, driverId: string, con
   const order = await loadOrderForDispatch(orderId);
   const driver = await prisma.driver.findUniqueOrThrow({ where: { id: driverId } });
 
-  if (driver.status !== 'AVAILABLE') {
+  if (driver.status !== 'AVAILABLE' && driver.status !== 'BUSY') {
     throw new DispatchError(
       `Le livreur ${driver.driverCode} n'est pas disponible (statut actuel : ${driver.status}).`
     );
+  }
+
+  // Un livreur BUSY peut recevoir un arrêt supplémentaire (multi-arrêts) tant
+  // qu'il n'a pas atteint sa capacité — au-delà, ce n'est plus une tournée
+  // raisonnable pour un deux-roues/voiture.
+  if (driver.status === 'BUSY') {
+    const activeLoad = await prisma.delivery.count({
+      where: { driverId, order: { status: { notIn: TERMINAL_STATUSES } } },
+    });
+    if (activeLoad >= MAX_CONCURRENT_DELIVERIES) {
+      throw new DispatchError(
+        `Le livreur ${driver.driverCode} a déjà ${activeLoad} livraisons actives (capacité maximale : ${MAX_CONCURRENT_DELIVERIES}).`
+      );
+    }
   }
 
   // Même règle qu'un choix depuis la liste de candidats — une assignation
