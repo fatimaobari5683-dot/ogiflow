@@ -41,6 +41,9 @@ export default async function SupplierOrderDetailPage({ params }: { params: { id
         <Link href={`/orders/${order.id}/label`} className="text-sm text-brand-600 hover:underline">
           🖨️ Bordereau
         </Link>
+        <Link href={`/orders/${order.id}/invoice`} className="text-sm text-brand-600 hover:underline">
+          🧾 Facture
+        </Link>
       </div>
       <p className="text-sm text-ink-secondary">
         Créée le {order.createdAt.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}

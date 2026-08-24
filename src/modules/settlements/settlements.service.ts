@@ -124,8 +124,18 @@ export async function getSettlementDetail(settlementId: string) {
   const settlement = await prisma.settlement.findUnique({
     where: { id: settlementId },
     include: {
-      supplier: { select: { companyName: true } },
-      transactions: { orderBy: { createdAt: 'asc' } },
+      supplier: { select: { companyName: true, taxId: true, billingAddress: true } },
+      transactions: {
+        orderBy: { createdAt: 'asc' },
+        // Une seule transaction SUPPLIER_PAYOUT par commande couverte (voir
+        // generateSettlement) : ce include suffit à reconstituer le détail
+        // par commande de l'état de versement, sans requête séparée.
+        include: {
+          order: {
+            select: { orderNumber: true, createdAt: true, totalAmount: true, commissionAmount: true, customer: { select: { fullName: true } } },
+          },
+        },
+      },
     },
   });
 

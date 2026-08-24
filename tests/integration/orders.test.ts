@@ -117,6 +117,26 @@ describe('getOrderDetail — données du bordereau de livraison', () => {
   it('lève OrderError pour une commande inconnue', async () => {
     await expect(getOrderDetail('inconnue')).rejects.toThrow(OrderError);
   });
+
+  it("inclut l'IF/ICE et l'adresse de facturation du fournisseur, nécessaires à la facture imprimable", async () => {
+    const { supplier, product } = await createOrderFixtures();
+    await prisma.supplier.update({
+      where: { id: supplier.id },
+      data: { taxId: 'IF-999888', billingAddress: '5 Rue de la Facture, Rabat' },
+    });
+    const order = await createOrderForSupplier({
+      supplierId: supplier.id,
+      customer: { fullName: 'Client Facture', phone: '+212600000094' },
+      address: { fullAddress: '1 rue Test', city: 'Casablanca' },
+      items: [{ productId: product.id, quantity: 1 }],
+      deliveryFee: 20,
+    });
+
+    const detail = await getOrderDetail(order.id);
+    expect(detail.supplier.taxId).toBe('IF-999888');
+    expect(detail.supplier.billingAddress).toBe('5 Rue de la Facture, Rabat');
+    expect(detail.items[0]?.lineTotal).toBeDefined();
+  });
 });
 
 describe('createOrderForSupplier — codes promo', () => {

@@ -17,7 +17,12 @@ export default async function SettlementDetailPage({ params }: { params: { id: s
           ← Versements
         </Link>
         <div className="mt-1 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-ink-primary">{settlement.supplier.companyName}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold text-ink-primary">{settlement.supplier.companyName}</h1>
+            <Link href={`/settlements/${settlement.id}/statement`} className="text-sm text-brand-600 hover:underline">
+              🖨️ État de versement
+            </Link>
+          </div>
           <SettlementActions settlementId={settlement.id} status={settlement.status} />
         </div>
         <p className="text-sm text-ink-secondary">

@@ -337,6 +337,31 @@ page `/supplier/orders/import`
 
 ---
 
+## 17. Facture et état de versement imprimables
+
+**Inspiré de** : le même besoin que le bordereau de livraison (section 11)
+mais pour la comptabilité — une facture de vente que le client peut
+recevoir, un relevé de versement que le fournisseur peut archiver.
+
+**Maintenant** : deux documents, même gabarit visuel que le bordereau
+(page dédiée hors barres latérales, `window.print()` du navigateur — aucune
+librairie PDF serveur). La **facture** (`/orders/:id/invoice`) est le
+document du fournisseur (vendeur) au client : articles, quantités, prix
+unitaires relus du catalogue, sous-total, frais de livraison, réduction,
+total — jamais la commission, qui ne regarde pas le client. L'**état de
+versement** (`/settlements/:id/statement`) est le document inverse, de
+LogiFlow au fournisseur : le détail commande par commande du versement
+(numéro, client, montant, commission, net), pour qu'un fournisseur puisse
+justifier ce qui lui a été payé.
+
+**Code** : `src/components/orders/OrderInvoice.tsx`,
+`src/components/settlements/SettlementStatement.tsx` — `getSettlementDetail`
+élargi pour inclure le détail par commande (une transaction
+`SUPPLIER_PAYOUT` par commande couverte, déjà créée par `generateSettlement`)
+sans requête supplémentaire
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel

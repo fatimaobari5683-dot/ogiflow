@@ -1149,6 +1149,29 @@ nomme bien le SKU manquant), et la commande créée s'ouvre avec le vrai nom
 client et le vrai prix catalogue (pas un prix du fichier, qui n'en contient
 pas).
 
+## ✅ Facture et état de versement imprimables (2026-08-24)
+
+Même famille que le bordereau de livraison (2026-08-23) : deux nouveaux
+documents imprimables, même gabarit (page hors layout, `window.print()`,
+aucune librairie PDF côté serveur). `getOrderDetail` élargi (`taxId`,
+`billingAddress` du fournisseur) et `getSettlementDetail` élargi (chaque
+transaction `SUPPLIER_PAYOUT` inclut désormais sa commande — numéro, date,
+montant, commission, client) : les deux étaient déjà interface-based,
+aucune nouvelle requête séparée nécessaire, juste un `include` plus large.
+
+Distinction volontaire entre les deux documents : la **facture**
+(`/orders/:id/invoice`) est ce que le client a payé (jamais la commission),
+l'**état de versement** (`/settlements/:id/statement`) est ce que LogiFlow
+doit au fournisseur après commission — les confondre aurait exposé une
+donnée financière interne (la commission) sur un document destiné au client.
+
+9 nouveaux tests (données de facturation sur la commande et le versement,
+erreur explicite sur ID inconnu). Suite complète verte (436/436). Vérifié en
+direct : les deux documents généré en PDF réel via Playwright tiennent sur
+une seule page chacun (comptage exact des objets `/Type /Page` dans les
+octets bruts du PDF — même méthode que la vérification du bug 2-pages du
+bordereau), et l'accès fournisseur à son propre état de versement fonctionne.
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 ~~1. Import CSV de commandes (fournisseur)~~ — fait, voir section 16 (FONCTIONNALITES-PLATEFORMES.md)
@@ -1156,7 +1179,7 @@ pas).
 3. **Middleware RBAC global** — actuellement : garde par route via `requirePermission`/`requireAnyPermission`/`requireDriverAccess`/`requireSupplierAccess`, fonctionnel, validé dans les 3 portails ET couvert par les tests d'intégration, mais pas centralisé
 4. **Étendre la couverture de tests** — payments/settlements/products/analytics n'ont pas encore leur fichier dédié (le chemin critique COD est couvert par `full-lifecycle.test.ts`, mais pas les cas limites : paiement prépayé/virement, contestation de versement, unicité SKU) ; ajouter aussi des tests sur les routes API elles-mêmes (RBAC HTTP), pas seulement la couche service ; brancher `npm test` en CI dès qu'il y a un dépôt git
 5. **Manifest PWA** (`manifest.json`, icônes, service worker) — la capture signature/photo réelle est faite (voir section 15, FONCTIONNALITES-PLATEFORMES.md) ; reste l'installabilité sur écran d'accueil, nécessite des assets d'icône réels
-6. **Génération PDF facture/état de versement** — mentionné dans le plan produit initial (section paiements), pas encore construit
+~~6. Génération PDF facture/état de versement~~ — fait, voir section 17 (FONCTIONNALITES-PLATEFORMES.md)
 7. **Webhooks fournisseurs** — notifier un système externe des changements de statut de commande (mentionné dans les deux documents d'architecture, pas encore construit)
 8. **Stockage S3-compatible pour les documents** — `document-storage.ts` est déjà interface-based (swap sans toucher aux appelants), mais le provider actif est un stockage disque local explicitement non production-ready
 9. **Documents contractuels** (Driver Partner Agreement, contrat fournisseur) — hors périmètre technique, nécessite rédaction juridique locale avant tout développement

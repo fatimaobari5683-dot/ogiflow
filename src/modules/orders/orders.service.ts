@@ -247,7 +247,7 @@ export async function getOrderDetail(orderId: string) {
       delivery: true,
       payments: true,
       promoCode: { select: { code: true } },
-      supplier: { select: { companyName: true, contactPhone: true } },
+      supplier: { select: { companyName: true, contactPhone: true, taxId: true, billingAddress: true } },
     },
   });
 

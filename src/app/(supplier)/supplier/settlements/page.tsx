@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requirePageUser } from '@/shared/http/page-auth';
 import { prisma } from '@/infrastructure/database/client';
 import { listSettlements } from '@/modules/settlements/settlements.service';
@@ -41,7 +42,8 @@ export default async function SupplierSettlementsPage() {
               <th className="pb-2 font-medium">Période</th>
               <th className="pb-2 font-medium">Commandes</th>
               <th className="pb-2 font-medium">Net à recevoir</th>
-              <th className="pb-2 pr-0 text-right font-medium">Statut</th>
+              <th className="pb-2 font-medium">Statut</th>
+              <th className="pb-2 pr-0 text-right font-medium"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-hairline">
@@ -54,16 +56,21 @@ export default async function SupplierSettlementsPage() {
                 <td className="py-2.5 tabular-nums font-medium text-ink-primary">
                   {Number(s.netPayout).toLocaleString('fr-FR')} MAD
                 </td>
-                <td className="py-2.5 text-right">
+                <td className="py-2.5">
                   <span className={clsx('rounded-full px-2.5 py-1 text-xs font-medium', STATUS_CLASSES[s.status])}>
                     {STATUS_LABELS[s.status]}
                   </span>
+                </td>
+                <td className="py-2.5 pr-0 text-right">
+                  <Link href={`/settlements/${s.id}/statement`} className="text-sm text-brand-600 hover:underline">
+                    🖨️ Imprimer
+                  </Link>
                 </td>
               </tr>
             ))}
             {settlements.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-6 text-center text-ink-muted">
+                <td colSpan={5} className="py-6 text-center text-ink-muted">
                   Aucun versement pour le moment.
                 </td>
               </tr>
