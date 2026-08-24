@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: logiflow
+      POSTGRES_PASSWORD: logiflow
+      POSTGRES_DB: logiflow
+      # Auth "trust" pour toutes les connexions, y compris hôte→conteneur via
+      # le NAT Docker Desktop/WSL2 (où scram-sha-256 échoue de façon connue
+      # sur certaines configs Windows). Sans risque : base locale éphémère,
+      # jamais exposée au-delà de 127.0.0.1 — ne concerne pas le modèle de
+      # sécurité applicatif (RBAC, JWT, hashing bcrypt restent inchangés).
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # 5433 côté hôte : le 5432 par défaut est déjà occupé par un service
+      # PostgreSQL natif Windows préexistant sur cette machine.
+      - '5433:5432'
+    volumes:
+      - logiflow_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+
+volumes:
+  logiflow_postgres_data:

@@ -1,0 +1,919 @@
+// ============================================================================
+// LOGIFLOW — Delivery Management & Logistics Operating System
+// Schéma Prisma / PostgreSQL — Version 1.0
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// 1. AUTHENTIFICATION & RBAC
+// ============================================================================
+
+enum UserRole {
+  SUPER_ADMIN
+  LOGISTICS_MANAGER
+  FINANCE_MANAGER
+  SUPPORT_AGENT
+  SUPPLIER
+  DRIVER
+  CUSTOMER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+  DEACTIVATED
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String?    @unique
+  phone         String     @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          UserRole
+  status        UserStatus @default(PENDING_VERIFICATION)
+  mfaEnabled    Boolean    @default(false)
+  mfaSecret     String?
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  // Relations 1:1 vers les profils métier selon le rôle
+  supplier      Supplier?
+  driver        Driver?
+  customer      Customer?
+
+  sessions      Session[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  supportTicketsCreated  SupportTicket[] @relation("TicketCreatedBy")
+  supportTicketsAssigned SupportTicket[] @relation("TicketAssignedTo")
+  supportMessages        SupportMessage[]
+  exceptionsAcknowledged Exception[]     @relation("ExceptionAcknowledgedBy")
+  exceptionsResolved     Exception[]     @relation("ExceptionResolvedBy")
+  documentsVerified      Document[]      @relation("DocumentVerifiedBy")
+
+  @@index([role, status])
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String   @unique
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  actor       User?    @relation(fields: [actorId], references: [id])
+  action      String   // e.g. "ORDER_STATUS_CHANGED", "COMMISSION_UPDATED"
+  entityType  String   // e.g. "Order", "Settlement"
+  entityId    String
+  ipAddress   String?
+  beforeState Json?
+  afterState  Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// 2. FOURNISSEURS
+// ============================================================================
+
+enum SupplierStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  SUSPENDED
+  TERMINATED
+}
+
+model Supplier {
+  id                String         @id @default(cuid())
+  userId            String         @unique
+  user              User           @relation(fields: [userId], references: [id])
+  companyName       String
+  taxId             String?
+  status            SupplierStatus @default(PENDING_APPROVAL)
+  rejectionReason   String? // motif communiqué au fournisseur si status = REJECTED
+  defaultCommissionRate Decimal    @default(0) @db.Decimal(5, 2) // en %
+  billingAddress    String?
+  contactEmail      String?
+  contactPhone      String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  additionalUsers   SupplierUser[]
+  products          Product[]
+  orders            Order[]
+  settlements       Settlement[]
+
+  @@index([status])
+  @@map("suppliers")
+}
+
+// Permet à un fournisseur d'avoir plusieurs comptes utilisateurs (équipe)
+model SupplierUser {
+  id          String   @id @default(cuid())
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  fullName    String
+  email       String?
+  phone       String
+  canCreateOrders  Boolean @default(true)
+  canViewFinance   Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([supplierId])
+  @@map("supplier_users")
+}
+
+// ============================================================================
+// 3. PRODUITS
+// ============================================================================
+
+model Product {
+  id          String   @id @default(cuid())
+  supplierId  String
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  sku         String?
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  weightKg    Decimal? @db.Decimal(6, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItems  OrderItem[]
+
+  @@unique([supplierId, sku])
+  @@index([supplierId])
+  @@map("products")
+}
+
+// ============================================================================
+// 4. CLIENTS
+// ============================================================================
+
+model Customer {
+  id          String    @id @default(cuid())
+  userId      String?   @unique // optionnel : le client peut ne pas avoir de compte
+  user        User?     @relation(fields: [userId], references: [id])
+  fullName    String
+  phone       String
+  email       String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  addresses   Address[]
+  orders      Order[]
+
+  @@index([phone])
+  @@map("customers")
+}
+
+model Address {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  label        String?  // "Domicile", "Bureau"
+  fullAddress  String
+  city         String
+  zoneId       String?
+  zone         Zone?    @relation(fields: [zoneId], references: [id])
+  latitude     Decimal? @db.Decimal(10, 7)
+  longitude    Decimal? @db.Decimal(10, 7)
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  orders       Order[]
+
+  @@index([customerId])
+  @@index([zoneId])
+  @@map("addresses")
+}
+
+model Zone {
+  id           String    @id @default(cuid())
+  name         String    @unique
+  city         String
+  polygon      Json?     // GeoJSON du périmètre de zone
+  // Centre approximatif de la zone (ville) — sert de position de repli sur la
+  // carte opérationnelle pour un livreur qui n'a encore jamais pingé sa
+  // position réelle (voir listDriverLocations dans drivers.service.ts).
+  latitude     Decimal?  @db.Decimal(10, 7)
+  longitude    Decimal?  @db.Decimal(10, 7)
+  baseDeliveryFee Decimal @default(0) @db.Decimal(10, 2)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  addresses    Address[]
+  driverZones  DriverZone[]
+  driversBasedHere Driver[] @relation("DriverBaseZone")
+
+  @@map("zones")
+}
+
+// ============================================================================
+// 5. LIVREURS
+// ============================================================================
+
+enum DriverStatus {
+  PENDING_APPROVAL
+  AVAILABLE
+  BUSY
+  OFFLINE
+  REJECTED
+  SUSPENDED
+}
+
+enum VehicleType {
+  MOTORCYCLE
+  CAR
+  VAN
+  BICYCLE
+  TRUCK
+}
+
+model Driver {
+  id                 String       @id @default(cuid())
+  userId             String       @unique
+  user               User         @relation(fields: [userId], references: [id])
+  driverCode         String       @unique // ex: DRV-019
+  vehicleType        VehicleType
+  vehiclePlate       String?
+  status             DriverStatus @default(PENDING_APPROVAL)
+  rejectionReason    String? // motif communiqué au livreur si status = REJECTED
+  address            String? // adresse déclarée à l'inscription — texte libre, comme Supplier.billingAddress
+  currentLatitude    Decimal?     @db.Decimal(10, 7)
+  currentLongitude   Decimal?     @db.Decimal(10, 7)
+  lastLocationUpdate DateTime?
+  commissionRate     Decimal      @default(0) @db.Decimal(5, 2)
+  walletBalance      Decimal      @default(0) @db.Decimal(12, 2) // solde à reverser à la société
+
+  // Zone déclarée à l'inscription ("où le livreur habite/veut travailler") —
+  // distincte des zones de service (`zones` ci-dessous, la liste des zones
+  // où il ACCEPTE des missions, utilisée par `zoneMatch` au dispatch).
+  // Champ nullable en base (migration sûre pour les livreurs déjà existants)
+  // mais obligatoire pour toute NOUVELLE inscription (voir
+  // auth.validators.ts) — register() crée aussi automatiquement la zone de
+  // service correspondante, pour qu'un livreur fraîchement inscrit soit
+  // immédiatement visible au dispatch dans sa zone déclarée, sans attendre
+  // qu'un opérateur l'assigne manuellement.
+  baseZoneId         String?
+  baseZone           Zone?        @relation("DriverBaseZone", fields: [baseZoneId], references: [id])
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  zones              DriverZone[]
+  deliveries         Delivery[]
+  deliveryAttempts   DeliveryAttempt[]
+  transactions       Transaction[]
+  offers             DriverOffer[]
+  reviews            DeliveryReview[]
+
+  @@index([status])
+  @@map("drivers")
+}
+
+model DriverZone {
+  id        String @id @default(cuid())
+  driverId  String
+  driver    Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  zoneId    String
+  zone      Zone   @relation(fields: [zoneId], references: [id])
+
+  @@unique([driverId, zoneId])
+  @@map("driver_zones")
+}
+
+// Offre de mission envoyée à un livreur — le dispatch ne force plus
+// l'assignation, il propose, avec expiration et refus explicites (inspiré
+// des plateformes de VTC/livraison : le livreur reste maître de sa course).
+enum DriverOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model DriverOffer {
+  id          String            @id @default(cuid())
+  orderId     String
+  order       Order             @relation(fields: [orderId], references: [id])
+  driverId    String
+  driver      Driver            @relation(fields: [driverId], references: [id])
+  score       Decimal?          @db.Decimal(5, 2)
+  status      DriverOfferStatus @default(PENDING)
+  offeredAt   DateTime          @default(now())
+  expiresAt   DateTime
+  respondedAt DateTime?
+
+  @@index([orderId])
+  @@index([driverId, status])
+  @@map("driver_offers")
+}
+
+// ============================================================================
+// 6. COMMANDES — LE CŒUR DU SYSTÈME
+// ============================================================================
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  READY_FOR_PICKUP
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CUSTOMER_ABSENT
+  WRONG_ADDRESS
+  CUSTOMER_REFUSED
+  RESCHEDULED
+  RETURNED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  PREPAID_ONLINE
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  COLLECTED
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique // ex: ORD-2026-000184
+  supplierId      String
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  customerId      String
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  addressId       String
+  address         Address       @relation(fields: [addressId], references: [id])
+
+  subtotalAmount  Decimal       @db.Decimal(10, 2)
+  deliveryFee     Decimal       @db.Decimal(10, 2)
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  commissionAmount Decimal      @default(0) @db.Decimal(10, 2)
+  supplierPayoutAmount Decimal  @default(0) @db.Decimal(10, 2)
+  promoCodeId     String?
+  promoCode       PromoCode?    @relation(fields: [promoCodeId], references: [id])
+  discountAmount  Decimal       @default(0) @db.Decimal(10, 2)
+
+  paymentMethod   PaymentMethod @default(CASH_ON_DELIVERY)
+  paymentStatus   PaymentStatus @default(PENDING)
+
+  status          OrderStatus   @default(PENDING)
+  instructions    String?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items           OrderItem[]
+  statusHistory   OrderStatusHistory[]
+  delivery        Delivery?
+  payments        Payment[]
+  transactions    Transaction[]
+  offers          DriverOffer[]
+  exceptions      Exception[]
+  review          DeliveryReview?
+  supportTickets  SupportTicket[]
+  messages        OrderMessage[]
+
+  @@index([supplierId, status])
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  quantity   Int
+  unitPrice  Decimal @db.Decimal(10, 2)
+  lineTotal  Decimal @db.Decimal(10, 2)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// Traçabilité complète de chaque transition de statut (state machine)
+model OrderStatusHistory {
+  id         String      @id @default(cuid())
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  changedById String?
+  reason     String?
+  createdAt  DateTime    @default(now())
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+// ============================================================================
+// 7. LIVRAISONS & TRACKING
+// ============================================================================
+
+model Delivery {
+  id               String    @id @default(cuid())
+  orderId          String    @unique
+  order            Order     @relation(fields: [orderId], references: [id])
+  driverId         String?
+  driver           Driver?   @relation(fields: [driverId], references: [id])
+
+  assignedAt       DateTime?
+  pickedUpAt       DateTime?
+  deliveredAt      DateTime?
+
+  dispatchScore    Decimal?  @db.Decimal(5, 2) // score calculé par le moteur de dispatch
+  distanceKm       Decimal?  @db.Decimal(6, 2)
+
+  proofType        String?   // SIGNATURE, OTP, PHOTO, GPS
+  proofData        Json?     // { signatureUrl, photoUrl, otpVerified, gpsLat, gpsLng }
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  attempts         DeliveryAttempt[]
+  events           DeliveryEvent[]
+
+  @@index([driverId])
+  @@map("deliveries")
+}
+
+enum DeliveryAttemptResult {
+  SUCCESS
+  CUSTOMER_ABSENT
+  WRONG_ADDRESS
+  CUSTOMER_REFUSED
+  OTHER_FAILURE
+}
+
+model DeliveryAttempt {
+  id          String                 @id @default(cuid())
+  deliveryId  String
+  delivery    Delivery               @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  driverId    String
+  driver      Driver                 @relation(fields: [driverId], references: [id])
+  attemptNumber Int
+  result      DeliveryAttemptResult
+  notes       String?
+  attemptedAt DateTime               @default(now())
+
+  @@index([deliveryId])
+  @@map("delivery_attempts")
+}
+
+// Flux d'événements temps réel (pour tracking live + audit)
+model DeliveryEvent {
+  id          String   @id @default(cuid())
+  deliveryId  String
+  delivery    Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  eventType   String   // PICKUP_COMPLETED, ARRIVED_IN_ZONE, OUT_FOR_DELIVERY...
+  latitude    Decimal? @db.Decimal(10, 7)
+  longitude   Decimal? @db.Decimal(10, 7)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([deliveryId, createdAt])
+  @@map("delivery_events")
+}
+
+// Avis client post-livraison — accessible depuis la page de suivi public
+// (logiflow.com/track/:orderNumber), sans authentification, comme le reste
+// du suivi. Un seul avis par commande (orderId unique), possible uniquement
+// une fois la commande DELIVERED (imposé par le service, pas par le schéma).
+model DeliveryReview {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id])
+  driverId  String?
+  driver    Driver?  @relation(fields: [driverId], references: [id])
+  rating    Int // 1 à 5
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([driverId])
+  @@map("delivery_reviews")
+}
+
+enum MessageSender {
+  CUSTOMER
+  DRIVER
+}
+
+// Chat livreur ↔ client pendant la livraison — inspiré de Glovo/Uber Eats.
+// Le client y accède depuis la page de suivi public (pas de compte), le
+// livreur depuis sa mission ; les deux passent par des routes distinctes
+// (voir order-chat.service.ts) mais partagent ce même flux chronologique.
+// N'existe que si un livreur est assigné (le service l'impose, pas le schéma).
+model OrderMessage {
+  id        String        @id @default(cuid())
+  orderId   String
+  order     Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sender    MessageSender
+  body      String
+  createdAt DateTime      @default(now())
+
+  @@index([orderId, createdAt])
+  @@map("order_messages")
+}
+
+// ============================================================================
+// PROMOTIONS — codes de réduction
+// ============================================================================
+
+enum PromoDiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+// Code de réduction appliqué à la création d'une commande (voir
+// orders.service.ts) — un seul type de règle à la fois (pourcentage plafonné,
+// ou montant fixe), pas de moteur de règles composables en V1, même choix
+// que les seuils SLA (exceptions.service.ts) : simple et honnête plutôt que
+// prématurément configurable.
+model PromoCode {
+  id             String            @id @default(cuid())
+  code           String            @unique
+  discountType   PromoDiscountType
+  discountValue  Decimal           @db.Decimal(10, 2) // % (0-100) si PERCENTAGE, montant MAD si FIXED_AMOUNT
+  maxDiscount    Decimal?          @db.Decimal(10, 2) // plafond du rabais, utile seulement avec PERCENTAGE
+  minOrderAmount Decimal?          @db.Decimal(10, 2)
+  isActive       Boolean           @default(true)
+  expiresAt      DateTime?
+  usageLimit     Int? // nombre total d'utilisations autorisées, toutes commandes confondues
+  usageCount     Int               @default(0)
+  createdAt      DateTime          @default(now())
+
+  orders         Order[]
+
+  @@map("promo_codes")
+}
+
+// ============================================================================
+// 8. FINANCE — PAIEMENTS, LEDGER, COMMISSIONS, VERSEMENTS
+// ============================================================================
+
+model Payment {
+  id            String        @id @default(cuid())
+  orderId       String
+  order         Order         @relation(fields: [orderId], references: [id])
+  method        PaymentMethod
+  amount        Decimal       @db.Decimal(10, 2)
+  status        PaymentStatus @default(PENDING)
+  collectedById String?       // driverId si COD
+  confirmedAt   DateTime?
+  createdAt     DateTime      @default(now())
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+enum TransactionType {
+  COD_COLLECTION
+  COMMISSION_DEDUCTION
+  SUPPLIER_PAYOUT
+  DRIVER_PAYOUT
+  REFUND
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  REVERSED
+}
+
+// Ledger financier — source unique de vérité pour tout mouvement d'argent
+model Transaction {
+  id            String            @id @default(cuid())
+  reference     String            @unique // ex: TX-0000128
+  orderId       String?
+  order         Order?            @relation(fields: [orderId], references: [id])
+  driverId      String?
+  driver        Driver?           @relation(fields: [driverId], references: [id])
+  settlementId  String?
+  settlement    Settlement?       @relation(fields: [settlementId], references: [id])
+  type          TransactionType
+  amount        Decimal           @db.Decimal(12, 2)
+  status        TransactionStatus @default(PENDING)
+  createdAt     DateTime          @default(now())
+
+  @@index([orderId])
+  @@index([driverId])
+  @@index([type, status])
+  @@map("transactions")
+}
+
+enum SettlementStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAID
+  DISPUTED
+}
+
+// Versement périodique à un fournisseur (regroupe plusieurs commandes)
+model Settlement {
+  id           String           @id @default(cuid())
+  supplierId   String
+  supplier     Supplier         @relation(fields: [supplierId], references: [id])
+  periodStart  DateTime
+  periodEnd    DateTime
+  totalOrders  Int
+  grossAmount  Decimal          @db.Decimal(12, 2)
+  totalCommission Decimal       @db.Decimal(12, 2)
+  netPayout    Decimal          @db.Decimal(12, 2)
+  status       SettlementStatus @default(DRAFT)
+  paidAt       DateTime?
+  createdAt    DateTime         @default(now())
+
+  transactions Transaction[]
+
+  @@index([supplierId, status])
+  @@map("settlements")
+}
+
+// ============================================================================
+// 9. NOTIFICATIONS
+// ============================================================================
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+  PUSH
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+model Notification {
+  id         String              @id @default(cuid())
+  userId     String?
+  user       User?               @relation(fields: [userId], references: [id])
+  channel    NotificationChannel
+  event      String              // ORDER_CREATED, DRIVER_ASSIGNED, DELIVERED...
+  payload    Json
+  status     NotificationStatus  @default(QUEUED)
+  sentAt     DateTime?
+  createdAt  DateTime            @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@map("notifications")
+}
+
+// ============================================================================
+// 10. SUPPORT
+// ============================================================================
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id            String       @id @default(cuid())
+  createdById   String
+  createdBy     User         @relation("TicketCreatedBy", fields: [createdById], references: [id])
+  assignedToId  String?
+  assignedTo    User?        @relation("TicketAssignedTo", fields: [assignedToId], references: [id])
+  relatedOrderId String?
+  relatedOrder  Order?       @relation(fields: [relatedOrderId], references: [id])
+  subject       String
+  description   String
+  status        TicketStatus @default(OPEN)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  messages      SupportMessage[]
+
+  @@index([status])
+  @@index([createdById])
+  @@map("support_tickets")
+}
+
+// Fil de discussion d'un ticket — le créateur et l'agent assigné peuvent
+// tous deux répondre ; pas de threading imbriqué, un simple historique
+// chronologique comme sur les centres d'aide des grandes plateformes.
+model SupportMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User          @relation(fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime      @default(now())
+
+  @@index([ticketId])
+  @@map("support_messages")
+}
+
+// ============================================================================
+// 12. CONTROL TOWER — EXCEPTIONS & SLA
+// ============================================================================
+
+// Types d'anomalie détectés automatiquement lors du balayage des commandes
+// actives (voir exceptions.service.ts). Volontairement limité à ce que le
+// système peut détecter sans configuration externe (pas de moteur de règles
+// SLA configurable en V1 — les seuils sont des constantes de code).
+enum ExceptionType {
+  SLA_AT_RISK      // proche du seuil de temps pour l'étape en cours
+  SLA_BREACHED     // seuil dépassé
+  REPEATED_FAILURE // ≥2 tentatives de livraison échouées
+  DRIVER_SOS       // alerte d'urgence déclenchée par le livreur — jamais auto-résolue (voir exceptions.service.ts)
+}
+
+enum ExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model Exception {
+  id               String            @id @default(cuid())
+  orderId          String
+  order            Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type             ExceptionType
+  severity         ExceptionSeverity
+  status           ExceptionStatus   @default(OPEN)
+  description      String
+
+  acknowledgedById String?
+  acknowledgedBy   User?             @relation("ExceptionAcknowledgedBy", fields: [acknowledgedById], references: [id])
+  acknowledgedAt   DateTime?
+
+  resolvedById     String?
+  resolvedBy       User?             @relation("ExceptionResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt       DateTime?
+  resolution       String?
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([severity])
+  @@map("exceptions")
+}
+
+// ============================================================================
+// 13. IDEMPOTENCE
+// ============================================================================
+
+// Une ligne réservée dès la réception d'une requête portant un en-tête
+// Idempotency-Key (avant même d'exécuter la logique métier) — statusCode/
+// responseBody restent null pendant l'exécution, ce qui permet de détecter
+// une requête concurrente sur la même clé (voir shared/http/idempotency.ts).
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  scope        String // ex: "orders:create" — namespace la clé par endpoint
+  key          String // valeur fournie par le client (ex: UUID généré côté formulaire)
+  requestHash  String // empreinte du corps de requête — détecte une réutilisation de clé avec un payload différent
+  statusCode   Int?
+  responseBody Json?
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+// ============================================================================
+// 14. CONFORMITÉ — PIÈCES JUSTIFICATIVES (KYC LIVREUR / KYB FOURNISSEUR)
+// ============================================================================
+
+// Pas de relation Prisma directe vers Driver/Supplier (polymorphe) — même
+// pattern que PayoutProfile dans les documents d'architecture soumis cette
+// session : ownerType + ownerId en tant que paire, documenté plutôt que
+// modélisé en deux FK nullables.
+enum DocumentOwnerType {
+  DRIVER
+  SUPPLIER
+}
+
+// Périmètre V1 volontairement minimal (pas les 3 paliers BASIC/VERIFIED/
+// BUSINESS_VERIFIED décrits dans la doc soumise) : une entreprise n'a pas à
+// franchir une procédure lourde pour livrer quelques colis — cohérent avec
+// la mise en garde CNDP de la même doc (finalité, proportionnalité).
+enum DocumentType {
+  CIN
+  DRIVER_LICENSE
+  VEHICLE_REGISTRATION
+  VEHICLE_INSURANCE
+  COMPANY_REGISTRATION
+}
+
+enum DocumentStatus {
+  UPLOADED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+// Catalogue fermé plutôt que texte libre : "ne laissez pas l'administrateur
+// écrire n'importe quoi" — un motif codifié reste exploitable en tri/stats,
+// le commentaire libre (rejectionReason) reste pour le détail humain.
+enum DocumentRejectionReason {
+  ILLEGIBLE
+  EXPIRED
+  WRONG_DOCUMENT
+  MISSING_PAGE
+  MISMATCH_IDENTITY
+  MISMATCH_VEHICLE
+  INVALID_FORMAT
+  DUPLICATE
+  INCOMPLETE
+  OTHER
+}
+
+model Document {
+  id              String            @id @default(cuid())
+  ownerType       DocumentOwnerType
+  ownerId         String
+  type            DocumentType
+  documentNumber  String?
+  issuedAt        DateTime?
+  expiresAt       DateTime?
+
+  // Stockage : voir src/infrastructure/storage/document-storage.ts — fileKey
+  // est une clé opaque pour le storage provider, jamais un chemin exposé
+  // directement (les documents contiennent des données personnelles au sens
+  // CNDP : CIN, plaque, coordonnées — servis via une route API authentifiée,
+  // jamais depuis /public).
+  fileKey         String
+  fileName        String
+  mimeType        String
+
+  status              DocumentStatus           @default(UPLOADED)
+  verifiedById        String?
+  verifiedBy          User?                    @relation("DocumentVerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt          DateTime?
+  rejectionReasonCode DocumentRejectionReason?
+  rejectionReason     String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([ownerType, ownerId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("documents")
+}
