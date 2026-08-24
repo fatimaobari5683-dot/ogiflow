@@ -10,11 +10,12 @@ import {
   releaseDriverIfIdle,
   DispatchError,
   MAX_CONCURRENT_DELIVERIES,
+  SCHEDULED_DISPATCH_LEAD_TIME_MINUTES,
 } from '@/modules/dispatch/dispatch.service';
 
 beforeEach(resetDatabase);
 
-async function createReadyOrder(options: { zoneId?: string; lat?: number; lng?: number } = {}) {
+async function createReadyOrder(options: { zoneId?: string; lat?: number; lng?: number; scheduledFor?: Date; scheduledWindowMinutes?: number } = {}) {
   const fixtures = await createOrderFixtures({ zoneId: options.zoneId });
   const order = await createOrderForSupplier({
     supplierId: fixtures.supplier.id,
@@ -28,6 +29,8 @@ async function createReadyOrder(options: { zoneId?: string; lat?: number; lng?: 
     },
     items: [{ productId: fixtures.product.id, quantity: 1 }],
     deliveryFee: 20,
+    scheduledFor: options.scheduledFor,
+    scheduledWindowMinutes: options.scheduledWindowMinutes,
   });
   await transitionOrderStatus(order.id, 'CONFIRMED', {});
   await transitionOrderStatus(order.id, 'READY_FOR_PICKUP', {});
@@ -183,6 +186,37 @@ describe('dispatch — multi-arrêts (capacité livreur)', () => {
     await releaseDriverIfIdle(driver.id);
     updated = await prisma.driver.findUniqueOrThrow({ where: { id: driver.id } });
     expect(updated.status).toBe('AVAILABLE');
+  });
+});
+
+describe('dispatch — livraison programmée', () => {
+  it("refuse le dispatch tant que le délai de battement avant le créneau n'est pas atteint", async () => {
+    const farFuture = new Date(Date.now() + (SCHEDULED_DISPATCH_LEAD_TIME_MINUTES + 30) * 60_000);
+    const { order, zone } = await createReadyOrder({ scheduledFor: farFuture, scheduledWindowMinutes: 120 });
+    const { driver } = await createDriver({ zoneId: zone.id });
+
+    await expect(getDispatchCandidates(order.id)).rejects.toThrow(DispatchError);
+    await expect(assignDriverToOrder(order.id, driver.id, {})).rejects.toThrow(DispatchError);
+  });
+
+  it('autorise le dispatch une fois dans le délai de battement avant le créneau', async () => {
+    const soon = new Date(Date.now() + (SCHEDULED_DISPATCH_LEAD_TIME_MINUTES - 10) * 60_000);
+    const { order, zone } = await createReadyOrder({ scheduledFor: soon, scheduledWindowMinutes: 120 });
+    const { driver } = await createDriver({ zoneId: zone.id });
+
+    const candidates = await getDispatchCandidates(order.id);
+    expect(candidates.map((c) => c.driverId)).toContain(driver.id);
+
+    const result = await assignDriverToOrder(order.id, driver.id, {});
+    expect(result.order.status).toBe('ASSIGNED');
+  });
+
+  it('une commande non programmée reste dispatchable immédiatement (comportement inchangé)', async () => {
+    const { order, zone } = await createReadyOrder();
+    const { driver } = await createDriver({ zoneId: zone.id });
+
+    const result = await assignDriverToOrder(order.id, driver.id, {});
+    expect(result.order.status).toBe('ASSIGNED');
   });
 });
 

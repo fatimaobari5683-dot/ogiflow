@@ -228,3 +228,37 @@ describe('transitionOrderStatus — state machine + audit trail', () => {
     expect(auditLog?.actorId).toBe(supplier.userId);
   });
 });
+
+describe('createOrderForSupplier — livraison programmée', () => {
+  it('persiste le créneau choisi (début + durée)', async () => {
+    const { supplier, product } = await createOrderFixtures();
+    const scheduledFor = new Date(Date.now() + 5 * 3_600_000); // dans 5h
+
+    const order = await createOrderForSupplier({
+      supplierId: supplier.id,
+      customer: { fullName: 'Client Programmé', phone: '+212600000093' },
+      address: { fullAddress: '1 rue Test', city: 'Casablanca' },
+      items: [{ productId: product.id, quantity: 1 }],
+      deliveryFee: 20,
+      scheduledFor,
+      scheduledWindowMinutes: 120,
+    });
+
+    expect(order.scheduledFor?.toISOString()).toBe(scheduledFor.toISOString());
+    expect(order.scheduledWindowMinutes).toBe(120);
+  });
+
+  it('sans créneau choisi, scheduledFor/scheduledWindowMinutes restent null', async () => {
+    const { supplier, product } = await createOrderFixtures();
+    const order = await createOrderForSupplier({
+      supplierId: supplier.id,
+      customer: { fullName: 'Client Standard', phone: '+212600000092' },
+      address: { fullAddress: '1 rue Test', city: 'Casablanca' },
+      items: [{ productId: product.id, quantity: 1 }],
+      deliveryFee: 20,
+    });
+
+    expect(order.scheduledFor).toBeNull();
+    expect(order.scheduledWindowMinutes).toBeNull();
+  });
+});

@@ -70,6 +70,8 @@ export async function getPublicTracking(orderNumber: string) {
     orderNumber: order.orderNumber,
     status: order.status,
     createdAt: order.createdAt,
+    scheduledFor: order.scheduledFor,
+    scheduledWindowMinutes: order.scheduledWindowMinutes,
     deliveredAt: order.delivery?.deliveredAt ?? null,
     driver: driver ? { code: driver.driverCode, vehicle: driver.vehicleType } : null,
     driverPosition: hasFreshPosition

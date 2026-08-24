@@ -43,6 +43,17 @@ const CANDIDATE_POOL_LIMIT = 10;
 export const MAX_CONCURRENT_DELIVERIES = 3;
 
 /**
+ * Délai avant le début du créneau programmé à partir duquel le dispatch
+ * devient possible — une commande programmée pour 14h ne doit pas immobiliser
+ * un livreur dès 9h. Volontairement un simple garde-fou vérifié à chaque
+ * tentative de dispatch, pas un déclenchement automatique à l'heure dite :
+ * ce projet n'a pas de scheduler (même limite assumée que les webhooks,
+ * voir webhooks.service.ts) — un opérateur ou l'auto-dispatch doit retenter
+ * une fois le créneau de battement atteint.
+ */
+export const SCHEDULED_DISPATCH_LEAD_TIME_MINUTES = 60;
+
+/**
  * Seuil de "position obsolète" (voir DriverLocationPing.tsx — le livreur
  * ping toutes les 60s tant qu'il est en ligne). Signal visible pour
  * l'opérateur uniquement — ne filtre PAS les candidats : le score de
@@ -125,6 +136,14 @@ export async function loadOrderForDispatch(orderId: string): Promise<OrderWithAd
     throw new DispatchError(
       `Dispatch impossible : la commande est au statut "${order.status}" (attendu : READY_FOR_PICKUP).`
     );
+  }
+  if (order.scheduledFor) {
+    const dispatchOpensAt = new Date(order.scheduledFor.getTime() - SCHEDULED_DISPATCH_LEAD_TIME_MINUTES * 60_000);
+    if (new Date() < dispatchOpensAt) {
+      throw new DispatchError(
+        `Livraison programmée à ${order.scheduledFor.toLocaleString('fr-FR')} — dispatch disponible à partir de ${dispatchOpensAt.toLocaleString('fr-FR')}.`
+      );
+    }
   }
   return order;
 }

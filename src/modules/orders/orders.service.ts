@@ -38,6 +38,8 @@ interface CreateOrderInput {
   deliveryFee: number;
   instructions?: string;
   promoCode?: string;
+  scheduledFor?: Date;
+  scheduledWindowMinutes?: number;
 }
 
 export async function createOrder(input: CreateOrderInput) {
@@ -71,6 +73,8 @@ export async function createOrder(input: CreateOrderInput) {
       status: 'PENDING',
       promoCodeId: discount?.promoCodeId,
       discountAmount,
+      scheduledFor: input.scheduledFor,
+      scheduledWindowMinutes: input.scheduledWindowMinutes,
       items: {
         create: input.items.map((item) => ({
           productId: item.productId,
@@ -157,6 +161,8 @@ interface CreateOrderForSupplierInput {
   deliveryFee: number;
   instructions?: string;
   promoCode?: string;
+  scheduledFor?: Date;
+  scheduledWindowMinutes?: number;
 }
 
 /**
@@ -224,6 +230,8 @@ export async function createOrderForSupplier(input: CreateOrderForSupplierInput)
     deliveryFee: input.deliveryFee,
     instructions: input.instructions,
     promoCode: input.promoCode,
+    scheduledFor: input.scheduledFor,
+    scheduledWindowMinutes: input.scheduledWindowMinutes,
   });
 }
 

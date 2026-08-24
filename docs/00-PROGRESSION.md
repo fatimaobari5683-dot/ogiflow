@@ -1200,6 +1200,29 @@ l'intégration bout-en-bout avec `dispatchDomainEvent`. Suite complète verte
 réelle vers CONFIRMED, un vrai serveur local a reçu l'appel signé, et la
 page `/supplier/webhooks` affichait bien cette livraison dans son journal.
 
+## ✅ Livraisons programmées (2026-08-24)
+
+Un fournisseur peut fixer un créneau (début + durée, au moins 2h à
+l'avance) au lieu d'un ASAP systématique. `READY_FOR_PICKUP` reste
+inchangé (le fournisseur prépare quand il veut) ; seul le point d'entrée
+unique du dispatch (`loadOrderForDispatch`, déjà utilisé par
+`getDispatchCandidates` ET `assignDriverToOrder` — un seul garde-fou à
+ajouter, pas deux) refuse toute tentative tant qu'on n'est pas à moins
+d'une heure du début du créneau.
+
+Même limite honnête que les webhooks (section précédente) : pas de
+scheduler dans ce projet, donc pas de déclenchement automatique à l'heure
+dite — juste un garde-fou vérifié à chaque tentative de dispatch. Affiché
+sur la fiche commande (admin/fournisseur, badge "📅 Programmée") et sur le
+suivi public client ("Livraison prévue le...").
+
+18 nouveaux tests (persistance, validation du délai minimum de 2h,
+garde-fou de dispatch avant/après le seuil, comportement inchangé pour une
+commande non programmée). Suite complète verte (456/456). Vérifié en
+direct : une vraie commande créée via le formulaire fournisseur avec un
+créneau à J+1 s'est retrouvée en base avec les bons champs, affichée
+correctement sur la fiche commande ET sur la page de suivi client.
+
 ## 🔜 Prochaines étapes (dans l'ordre)
 
 ~~1. Import CSV de commandes (fournisseur)~~ — fait, voir section 16 (FONCTIONNALITES-PLATEFORMES.md)

@@ -6,6 +6,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { OrderStatusBadge } from '@/components/ui/OrderStatusBadge';
 import { CancelOrderButton } from '@/components/supplier/CancelOrderButton';
 import { ORDER_STATUS_META, type OrderStatusValue } from '@/components/order-status';
+import { formatScheduledWindow } from '@/shared/utils/scheduling';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,6 +46,11 @@ export default async function SupplierOrderDetailPage({ params }: { params: { id
           🧾 Facture
         </Link>
       </div>
+      {order.scheduledFor && (
+        <p className="inline-block rounded-md bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700">
+          📅 Programmée : {formatScheduledWindow(order.scheduledFor, order.scheduledWindowMinutes)}
+        </p>
+      )}
       <p className="text-sm text-ink-secondary">
         Créée le {order.createdAt.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
       </p>

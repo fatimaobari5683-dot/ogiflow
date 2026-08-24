@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getPublicTracking, TrackingError } from '@/modules/tracking/tracking.service';
 import { ORDER_STATUS_META, type OrderStatusValue } from '@/components/order-status';
+import { formatScheduledWindow } from '@/shared/utils/scheduling';
 import { CustomerTrackingMap } from '@/components/tracking/CustomerTrackingMap';
 import { DeliveryReviewForm } from '@/components/tracking/DeliveryReviewForm';
 import { OrderChatPanel } from '@/components/chat/OrderChatPanel';
@@ -57,6 +58,12 @@ export default async function TrackingPage({ params }: { params: { orderNumber: 
           <h1 className="mt-2 text-xl font-semibold text-ink-primary">Votre commande</h1>
           <p className="text-sm text-ink-muted">{tracking.orderNumber}</p>
         </div>
+
+        {tracking.scheduledFor && currentStatus !== 'DELIVERED' && (
+          <div className="mb-4 rounded-lg bg-brand-50 px-4 py-3 text-center text-sm font-medium text-brand-700">
+            📅 Livraison prévue le {formatScheduledWindow(tracking.scheduledFor, tracking.scheduledWindowMinutes)}
+          </div>
+        )}
 
         <div className="rounded-lg border border-hairline bg-surface p-5">
           <ol className="space-y-4">

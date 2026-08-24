@@ -395,6 +395,30 @@ testés en conditions réelles.
 
 ---
 
+## 19. Livraisons programmées
+
+**Inspiré de** : le créneau de livraison choisi par le client chez Amazon/
+Glovo ("demain entre 14h et 16h") plutôt qu'un "au plus vite" systématique.
+
+**Maintenant** : le fournisseur peut fixer un créneau (début + durée) à la
+création d'une commande, au moins 2h à l'avance. Le fournisseur prépare la
+commande (READY_FOR_PICKUP) quand il veut — seul le **dispatch** est
+retardé : une commande programmée n'apparaît candidate à l'assignation
+qu'une heure avant le début du créneau (`SCHEDULED_DISPATCH_LEAD_TIME_MINUTES`).
+Affiché sur la fiche commande (admin/fournisseur) et sur le suivi public
+client.
+
+**Limite assumée** : pas de déclenchement automatique à l'heure dite — ce
+projet n'a pas de scheduler (même limite que les webhooks, section 18). Un
+opérateur ou l'auto-dispatch doit retenter une fois le créneau de battement
+atteint ; ce n'est pas un système "à l'heure pile" sans intervention.
+
+**Code** : `Order.scheduledFor`/`scheduledWindowMinutes`, garde-fou dans
+`loadOrderForDispatch` (`dispatch.service.ts`), `formatScheduledWindow`
+(`src/shared/utils/scheduling.ts`)
+
+---
+
 ## Bugs corrigés en cours de route (trouvés en vérifiant, pas en lisant le code)
 
 - **Carte opérationnelle vide malgré des tuiles chargées** — style vectoriel

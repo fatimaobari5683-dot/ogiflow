@@ -34,6 +34,9 @@ export function CreateOrderForm({
   const [deliveryFee, setDeliveryFee] = useState('20');
   const [promoCode, setPromoCode] = useState('');
   const [instructions, setInstructions] = useState('');
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [scheduledWindowMinutes, setScheduledWindowMinutes] = useState('120');
   const [items, setItems] = useState<LineItem[]>([{ productId: products[0]?.id ?? '', quantity: 1 }]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +80,8 @@ export function CreateOrderForm({
           deliveryFee: Number(deliveryFee),
           promoCode: promoCode.trim() || undefined,
           instructions: instructions || undefined,
+          scheduledFor: isScheduled && scheduledFor ? new Date(scheduledFor).toISOString() : undefined,
+          scheduledWindowMinutes: isScheduled && scheduledFor ? Number(scheduledWindowMinutes) : undefined,
         }),
       });
       router.push(`/supplier/orders/${order.id}`);
@@ -178,6 +183,38 @@ export function CreateOrderForm({
               />
             </Field>
           </div>
+          <label className="flex items-center gap-2 text-sm text-ink-primary">
+            <input type="checkbox" checked={isScheduled} onChange={(e) => setIsScheduled(e.target.checked)} />
+            Livraison programmée (créneau choisi plutôt qu&apos;au plus vite)
+          </label>
+          {isScheduled && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Début du créneau">
+                <input
+                  type="datetime-local"
+                  required={isScheduled}
+                  value={scheduledFor}
+                  onChange={(e) => setScheduledFor(e.target.value)}
+                  className="w-full rounded-md border border-hairline px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                />
+              </Field>
+              <Field label="Durée du créneau">
+                <select
+                  value={scheduledWindowMinutes}
+                  onChange={(e) => setScheduledWindowMinutes(e.target.value)}
+                  className="w-full rounded-md border border-hairline px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                >
+                  <option value="60">1 heure</option>
+                  <option value="120">2 heures</option>
+                  <option value="240">4 heures</option>
+                </select>
+              </Field>
+              <p className="col-span-2 text-xs text-ink-muted">
+                À fixer au moins 2h à l&apos;avance — le dispatch ne devient disponible qu&apos;une heure avant le
+                début du créneau.
+              </p>
+            </div>
+          )}
           <Field label="Instructions (optionnel)" full>
             <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} className="w-full rounded-md border border-hairline px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500" />
           </Field>

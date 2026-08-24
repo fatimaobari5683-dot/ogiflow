@@ -426,6 +426,17 @@ model Order {
   status          OrderStatus   @default(PENDING)
   instructions    String?
 
+  // Livraison programmée (optionnelle) — un créneau, pas un instant précis
+  // ("14h-16h" = scheduledFor 14:00 + scheduledWindowMinutes 120). Ne
+  // change rien à READY_FOR_PICKUP (le fournisseur prépare quand il veut) ;
+  // seul le DISPATCH est retardé (voir loadOrderForDispatch,
+  // dispatch.service.ts) — pas de scheduler dans ce projet pour déclencher
+  // le dispatch tout seul à l'heure dite, donc un opérateur (ou
+  // l'auto-dispatch) doit agir une fois la fenêtre de battement atteinte,
+  // même limite honnête que les webhooks (pas de file de tâches différées).
+  scheduledFor          DateTime?
+  scheduledWindowMinutes Int?
+
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
