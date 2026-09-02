@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Minimal token grant: this workflow only checks out code and runs local
+# commands (no PR comments, no releases, no pushes) — read-only is
+# sufficient and avoids inheriting a broader repository/org default.
+permissions:
+  contents: read
+
+# Disposable, CI-only values. Never production credentials, never a
+# repository secret — this database exists only for the lifetime of this
+# job and is destroyed afterward. DATABASE_URL intentionally contains
+# "test" (database name logiflow_test) so it satisfies the same safety
+# guard tests/setup.ts enforces locally (refuses to run unless
+# DATABASE_URL includes "test").
+env:
+  DATABASE_URL: postgresql://logiflow_ci:logiflow_ci_password@localhost:5432/logiflow_test
+  JWT_SECRET: ci-disposable-jwt-secret-not-for-production-use-min-32-chars
+  JWT_EXPIRES_IN: 7d
+  NODE_ENV: test
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: logiflow_ci
+          POSTGRES_PASSWORD: logiflow_ci_password
+          POSTGRES_DB: logiflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U logiflow_ci -d logiflow_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (lockfile-strict)
+        run: npm ci
+
+      # Existing test scripts (test, test:unit, test:integration,
+      # db:test:migrate) all invoke `dotenv -e .env.test --`, which reads
+      # this exact file from disk. .env.test is gitignored (never
+      # committed — see .gitignore), so a fresh checkout has none; this
+      # step materializes a CI-only one with the disposable values above,
+      # letting every existing script run completely unmodified.
+      - name: Create .env.test for CI
+        run: |
+          cat > .env.test <<EOF
+          DATABASE_URL=${{ env.DATABASE_URL }}
+          JWT_SECRET=${{ env.JWT_SECRET }}
+          JWT_EXPIRES_IN=${{ env.JWT_EXPIRES_IN }}
+          NODE_ENV=${{ env.NODE_ENV }}
+          EOF
+
+      - name: Prisma generate
+        run: npm run db:generate
+
+      - name: Apply existing migrations to the disposable test database
+        run: npm run db:test:migrate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # Unit and integration tests are deliberately separate steps, each
+      # its own process invocation — never `npm test` (which runs both in
+      # one combined process). vitest.config.mts already sets
+      # fileParallelism: false for the shared-database integration suite;
+      # nothing here overrides or duplicates that. No matrix, no parallel
+      # jobs — this job is the only writer to the disposable Postgres
+      # service, so there is never a concurrent DB-backed test run.
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
