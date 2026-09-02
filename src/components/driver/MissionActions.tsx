@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { apiFetch, ApiError } from '@/lib/api-client';
 import { SignaturePad } from '@/components/driver/SignaturePad';
+import { QrScanner } from '@/components/driver/QrScanner';
 
 type TransitStatus = 'PICKED_UP' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY';
 type FailureResult = 'CUSTOMER_ABSENT' | 'WRONG_ADDRESS' | 'CUSTOMER_REFUSED' | 'OTHER_FAILURE';
@@ -38,6 +39,7 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
   const [showPodForm, setShowPodForm] = useState(false);
   const [proofType, setProofType] = useState<ProofType>('PHOTO');
   const [otpValue, setOtpValue] = useState('');
@@ -72,6 +74,24 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Action impossible.');
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function confirmPickup(pickupCode: string) {
+    setShowScanner(false);
+    setLoading('PICKED_UP');
+    setError(null);
+    try {
+      const geo = await getGeo();
+      await apiFetch(`/api/v1/deliveries/orders/${orderId}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status: 'PICKED_UP', pickupCode, ...geo }),
+      });
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Confirmation impossible.');
     } finally {
       setLoading(null);
     }
@@ -164,10 +184,14 @@ export function MissionActions({ orderId, status }: { orderId: string; status: s
         </p>
       )}
 
-      {status === 'ASSIGNED' && (
-        <Button className="w-full py-3 text-base" loading={loading === 'PICKED_UP'} onClick={() => advance('PICKED_UP')}>
-          Colis récupéré
+      {status === 'ASSIGNED' && !showScanner && (
+        <Button className="w-full py-3 text-base" loading={loading === 'PICKED_UP'} onClick={() => setShowScanner(true)}>
+          📷 Scanner le colis
         </Button>
+      )}
+
+      {status === 'ASSIGNED' && showScanner && (
+        <QrScanner onScan={confirmPickup} onCancel={() => setShowScanner(false)} />
       )}
 
       {status === 'PICKED_UP' && (

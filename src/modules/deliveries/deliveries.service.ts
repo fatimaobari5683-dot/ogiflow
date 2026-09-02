@@ -83,7 +83,7 @@ export async function assertDeliveryOwnership(delivery: OwnedDelivery, actor: Ac
 export async function advanceDeliveryStatus(
   orderId: string,
   toStatus: OrderStatus,
-  context: ActorContext & GeoContext
+  context: ActorContext & GeoContext & { pickupCode?: string }
 ) {
   if (!MANUAL_TRANSIT_STATUSES.includes(toStatus)) {
     throw new DeliveryError(`Transition "${toStatus}" non gérée par advanceDeliveryStatus.`);
@@ -91,6 +91,17 @@ export async function advanceDeliveryStatus(
 
   const delivery = await getDeliveryForOrder(orderId);
   await assertDeliveryOwnership(delivery, context);
+
+  // Vérification du QR scanné sur le bordereau (voir DeliveryLabel.tsx —
+  // même code `LOGIFLOW:<numéro>`) — seulement si un code est fourni : ne
+  // rend pas le scan obligatoire côté serveur, l'UI livreur en fait le
+  // chemin par défaut pour PICKED_UP (voir MissionActions.tsx/QrScanner.tsx).
+  if (toStatus === 'PICKED_UP' && context.pickupCode !== undefined) {
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, select: { orderNumber: true } });
+    if (context.pickupCode !== `LOGIFLOW:${order.orderNumber}`) {
+      throw new DeliveryError('Code QR invalide — ce n\'est pas le bon colis.', 422);
+    }
+  }
 
   const updatedOrder = await transitionOrderStatus(orderId, toStatus, {
     actorId: context.actorId,

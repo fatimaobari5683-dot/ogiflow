@@ -9,13 +9,14 @@ export async function POST(req: NextRequest, { params }: { params: { orderId: st
   try {
     const context = await requirePermission(req, Permission.DELIVERIES_UPDATE_STATUS);
     const body = await req.json();
-    const { status, latitude, longitude } = advanceStatusSchema.parse(body);
+    const { status, latitude, longitude, pickupCode } = advanceStatusSchema.parse(body);
 
     const order = await advanceDeliveryStatus(params.orderId, status, {
       actorId: context.userId,
       actorRole: context.role,
       latitude,
       longitude,
+      pickupCode,
     });
 
     return NextResponse.json({ success: true, data: order });

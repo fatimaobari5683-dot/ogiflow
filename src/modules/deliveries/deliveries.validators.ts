@@ -12,6 +12,9 @@ export const advanceStatusSchema = z.object({
   status: z.enum(['PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY']),
   latitude: latitudeSchema.optional(),
   longitude: longitudeSchema.optional(),
+  // Fourni uniquement pour PICKED_UP — code lu sur le QR du bordereau
+  // (voir DeliveryLabel.tsx), vérifié côté serveur dans advanceDeliveryStatus.
+  pickupCode: z.string().max(100).optional(),
 });
 
 // Formats autorisés pour une preuve PHOTO/SIGNATURE capturée depuis le

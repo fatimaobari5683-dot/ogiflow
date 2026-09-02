@@ -100,6 +100,58 @@ describe('deliveries — preuve de livraison obligatoire', () => {
   });
 });
 
+describe('advanceDeliveryStatus — vérification QR à l\'enlèvement (PICKED_UP)', () => {
+  it('accepte PICKED_UP sans code — le scan reste optionnel côté serveur', async () => {
+    const { order, driverUser } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const };
+
+    const result = await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
+    expect(result.status).toBe('PICKED_UP');
+  });
+
+  it('accepte PICKED_UP avec le bon code (LOGIFLOW:<numéro de commande>)', async () => {
+    const { order, driverUser } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const, pickupCode: `LOGIFLOW:${order.orderNumber}` };
+
+    const result = await advanceDeliveryStatus(order.id, 'PICKED_UP', ctx);
+    expect(result.status).toBe('PICKED_UP');
+  });
+
+  it('refuse PICKED_UP si le code scanné ne correspond pas à cette commande', async () => {
+    const { order, driverUser } = await createAssignedOrder();
+    const ctx = { actorId: driverUser.id, actorRole: 'DRIVER' as const, pickupCode: 'LOGIFLOW:ORD-2020-999999' };
+
+    await expect(advanceDeliveryStatus(order.id, 'PICKED_UP', ctx)).rejects.toThrow(DeliveryError);
+
+    const stillAssigned = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(stillAssigned.status).toBe('ASSIGNED'); // aucune transition appliquée sur code invalide
+  });
+
+  it("refuse PICKED_UP pour un livreur non assigné (livreur B) même avec le BON code QR de la commande — l'ownership prime sur la vérification QR, jamais l'inverse", async () => {
+    // Commande assignée au livreur A.
+    const { order } = await createAssignedOrder();
+    // Livreur B — aucun lien avec cette commande.
+    const { user: intruderUser } = await createDriver();
+
+    // Livreur B soumet le code QR correct (celui du bordereau réel de cette
+    // commande) : la vérification de propriété doit rejeter avant même que
+    // le code soit comparé, sinon un livreur qui intercepterait/photographierait
+    // le bordereau d'une commande d'un collègue pourrait se l'approprier.
+    const correctPickupCode = `LOGIFLOW:${order.orderNumber}`;
+    await expect(
+      advanceDeliveryStatus(order.id, 'PICKED_UP', {
+        actorId: intruderUser.id,
+        actorRole: 'DRIVER',
+        pickupCode: correctPickupCode,
+      })
+    ).rejects.toThrow(DeliveryError);
+
+    // Aucune transition n'a eu lieu : la commande reste ASSIGNED, pas PICKED_UP.
+    const stillAssigned = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(stillAssigned.status).toBe('ASSIGNED');
+  });
+});
+
 describe('deliveries — preuve de livraison PHOTO/SIGNATURE (fichier réel)', () => {
   async function deliverWithFile(proofType: 'PHOTO' | 'SIGNATURE', bytes: Buffer) {
     const { order, driverUser } = await createAssignedOrder();
