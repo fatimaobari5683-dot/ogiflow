@@ -16,7 +16,7 @@ prisma/*.db
 
 # Documents utilisateurs (CIN, permis, cartes grises...) — jamais commités ;
 # stockage local de développement uniquement, voir document-storage.ts
-storage/
+/storage/
 
 # Logs
 *.log
