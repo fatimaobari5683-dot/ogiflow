@@ -33,8 +33,15 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Claude Code local state
-.claude/
+# Claude Code local runtime/state — ignored by default (scheduled_tasks.lock,
+# caches, and any other machine-local files land here). The shared AI
+# governance assets are explicitly un-ignored below so they are
+# version-controlled and shared across clones.
+.claude/*
+!.claude/agents/
+!.claude/agents/**
+!.claude/skills/
+!.claude/skills/**
 
 # TypeScript incremental build cache
 *.tsbuildinfo
