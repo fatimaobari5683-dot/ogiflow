@@ -6,7 +6,7 @@ export default function TrackingNotFound() {
       <div className="w-full max-w-sm text-center">
         <h1 className="text-2xl font-semibold text-brand-700">LogiFlow</h1>
         <p className="mt-6 text-sm text-ink-secondary">
-          Aucune commande ne correspond à ce numéro. Vérifiez qu'il est correctement saisi.
+          Aucune commande ne correspond à ce numéro. Vérifiez qu&apos;il est correctement saisi.
         </p>
         <Link
           href="/track"

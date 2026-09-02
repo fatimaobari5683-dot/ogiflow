@@ -93,7 +93,7 @@ export function DocumentUploadForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-ink-secondary">Date d'expiration (si applicable)</label>
+          <label className="block text-xs font-medium text-ink-secondary">Date d&apos;expiration (si applicable)</label>
           <input
             type="date"
             value={expiresAt}
